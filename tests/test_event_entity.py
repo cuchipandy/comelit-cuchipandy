@@ -1,4 +1,4 @@
-"""Unit tests for ComelitDoorbellEvent entity."""
+﻿"""Unit tests for ComelitDoorbellEvent entity."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.comelit_intercom_local.event import ComelitDoorbellEvent
-from custom_components.comelit_intercom_local.models import PushEvent
+from custom_components.comelit_man.event import ComelitDoorbellEvent
+from custom_components.comelit_man.models import PushEvent
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ class TestDoorbellEventMeta:
         assert entity._attr_unique_id == "test_entry_id_doorbell"
 
     def test_event_types(self):
-        from custom_components.comelit_intercom_local.event import EVENT_TYPES
+        from custom_components.comelit_man.event import EVENT_TYPES
         assert "doorbell_ring" in EVENT_TYPES
         assert "missed_call" in EVENT_TYPES
 
@@ -50,7 +50,7 @@ class TestDoorbellEventMeta:
         entity = _make_entity()
         info = entity.device_info
         assert isinstance(info, dict)
-        assert ("comelit_intercom_local", "test_entry_id") in info.get("identifiers", set())
+        assert ("comelit_man", "test_entry_id") in info.get("identifiers", set())
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ class TestAsyncAddedToHass:
 class TestCoordinatorPushCallbacks:
     def _make_coordinator(self):
         """Build a minimal coordinator (without HA runtime)."""
-        from custom_components.comelit_intercom_local.coordinator import (
+        from custom_components.comelit_man.coordinator import (
             ComelitLocalCoordinator,
         )
 

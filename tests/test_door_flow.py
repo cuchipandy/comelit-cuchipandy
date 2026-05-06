@@ -1,4 +1,4 @@
-"""End-to-end door open flow tests.
+﻿"""End-to-end door open flow tests.
 
 These tests exercise the full chain:
     open_door → open_ctpp_channel → ctpp_init_sequence → _open_door_on_channel
@@ -12,9 +12,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.door import open_door
-from custom_components.comelit_intercom_local.exceptions import DoorOpenError
-from custom_components.comelit_intercom_local.models import DeviceConfig, Door
+from custom_components.comelit_man.door import open_door
+from custom_components.comelit_man.exceptions import DoorOpenError
+from custom_components.comelit_man.models import DeviceConfig, Door
 
 
 def _make_door(*, is_actuator: bool = False) -> Door:
@@ -70,8 +70,8 @@ class TestStandalonePath:
         The real function still runs (this is a spy, not a stub) — we just
         capture the kwargs to verify the argument is passed correctly.
         """
-        import custom_components.comelit_intercom_local.door as door_mod
-        from custom_components.comelit_intercom_local.ctpp import ctpp_init_sequence as real_fn
+        import custom_components.comelit_man.door as door_mod
+        from custom_components.comelit_man.ctpp import ctpp_init_sequence as real_fn
 
         captured: dict = {}
 

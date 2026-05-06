@@ -1,0 +1,66 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hacs:
+    name: HACS Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - run: ruff check custom_components/
+
+  test:
+    name: Pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: pip install pytest pytest-asyncio aiohttp av
+      - name: Run unit tests
+        run: |
+          PYTHONPATH=. pytest \
+            tests/test_protocol.py \
+            tests/test_client.py \
+            tests/test_rtp_receiver.py \
+            tests/test_rtsp_server.py \
+            tests/test_token.py \
+            tests/test_video_call.py \
+            tests/test_video_signaling.py \
+            tests/test_ctpp.py \
+            tests/test_door.py \
+            tests/test_camera.py \
+            tests/test_coordinator.py \
+            tests/test_vip_listener.py \
+            tests/test_event_entity.py \
+            tests/test_button.py \
+            tests/test_push.py \
+            -v

@@ -1,4 +1,4 @@
-"""Unit tests for VipEventListener and parse_ctpp_message."""
+﻿"""Unit tests for VipEventListener and parse_ctpp_message."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.models import DeviceConfig, PushEvent
-from custom_components.comelit_intercom_local.vip_listener import (
+from custom_components.comelit_man.models import DeviceConfig, PushEvent
+from custom_components.comelit_man.vip_listener import (
     ACTION_CLOSED,
     ACTION_CONNECTED,
     ACTION_DOOR_OPENED,

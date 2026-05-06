@@ -1,4 +1,4 @@
-# Comelit Intercom Local
+﻿# Comelit Man
 
 Home Assistant custom component for the **Comelit 6701W** WiFi video intercom. Communicates via the ICONA Bridge TCP protocol — no cloud required.
 
@@ -21,25 +21,25 @@ Home Assistant custom component for the **Comelit 6701W** WiFi video intercom. C
 ### HACS (Recommended)
 
 1. Add this repository as a custom repository in HACS
-2. Install **Comelit Intercom Local**
+2. Install **Comelit Man**
 3. Restart Home Assistant
 
 ### Manual
 
-1. Copy the `custom_components/comelit_intercom_local/` folder to your HA `config/custom_components/` directory
+1. Copy the `custom_components/comelit_man/` folder to your HA `config/custom_components/` directory
 2. Restart Home Assistant
 
 ## Configuration
 
 1. Go to **Settings → Devices & Services → Add Integration**
-2. Search for **Comelit Intercom Local**
+2. Search for **Comelit Man**
 3. Enter your device IP and either:
    - Your device password (token will be extracted automatically), or
    - A pre-extracted 32-character hex token
 
 ### Notification settings
 
-After setup, you can configure the integration via **Settings → Integrations → Comelit Intercom Local → Configure**:
+After setup, you can configure the integration via **Settings → Integrations → Comelit Man → Configure**:
 
 | Option | Default | Description |
 |--------|---------|-------------|

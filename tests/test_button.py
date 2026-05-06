@@ -1,4 +1,4 @@
-"""Unit tests for button entities."""
+﻿"""Unit tests for button entities."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.button import (
+from custom_components.comelit_man.button import (
     ComelitDoorButton,
     ComelitStopVideoButton,
 )
-from custom_components.comelit_intercom_local.models import Door
+from custom_components.comelit_man.models import Door
 
 
 def _make_stop_button() -> ComelitStopVideoButton:

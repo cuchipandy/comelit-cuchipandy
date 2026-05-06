@@ -1,4 +1,4 @@
-"""Comelit Local integration for Home Assistant."""
+﻿"""Comelit Local integration for Home Assistant."""
 
 from __future__ import annotations
 
@@ -21,10 +21,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.BUTTON, Platform.CAMERA, Platform.EVENT]
 
-_CARD_URL = "/comelit_intercom_local/comelit-intercom-card.js"
+_CARD_URL = "/comelit_man/comelit-intercom-card.js"
 _CARD_PATH = str(Path(__file__).parent / "www" / "comelit-intercom-card.js")
 
-_DOORBELL_CARD_URL = "/comelit_intercom_local/comelit-doorbell-card.js"
+_DOORBELL_CARD_URL = "/comelit_man/comelit-doorbell-card.js"
 _DOORBELL_CARD_PATH = str(Path(__file__).parent / "www" / "comelit-doorbell-card.js")
 
 

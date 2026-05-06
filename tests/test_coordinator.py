@@ -1,4 +1,4 @@
-"""Unit tests for ComelitLocalCoordinator — no device or HA runtime needed."""
+﻿"""Unit tests for ComelitLocalCoordinator — no device or HA runtime needed."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.coordinator import ComelitLocalCoordinator
+from custom_components.comelit_man.coordinator import ComelitLocalCoordinator
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ class TestRequestVideoStop:
         mock_session.start = AsyncMock()
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             await coord.async_start_video(auto_timeout=True, by_user=True)
@@ -139,7 +139,7 @@ class TestAsyncStartVideo:
         mock_session.start = AsyncMock()
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             await coord.async_start_video(auto_timeout=True)
@@ -154,7 +154,7 @@ class TestAsyncStartVideo:
         mock_session.start = AsyncMock()
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             await coord.async_start_video(auto_timeout=True)
@@ -176,7 +176,7 @@ class TestAsyncStartVideo:
         mock_session.start = AsyncMock(side_effect=slow_start)
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             task1 = asyncio.create_task(coord.async_start_video())
@@ -198,7 +198,7 @@ class TestAsyncStartVideo:
         mock_session.start = AsyncMock()
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             await coord.async_start_video(by_user=True)
@@ -277,7 +277,7 @@ class TestCallbackRegistration:
         coord.add_video_state_change_callback(cb)
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             await coord.async_start_video()
@@ -316,7 +316,7 @@ class TestCallbackRegistration:
         remove()
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.VideoCallSession",
+            "custom_components.comelit_man.coordinator.VideoCallSession",
             return_value=mock_session,
         ):
             await coord.async_start_video()
@@ -356,7 +356,7 @@ class TestAsyncOpenDoor:
         door = MagicMock()
 
         with patch(
-            "custom_components.comelit_intercom_local.coordinator.open_door",
+            "custom_components.comelit_man.coordinator.open_door",
             new_callable=AsyncMock,
         ) as mock_open_door:
             await coord.async_open_door(door)

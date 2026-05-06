@@ -1,4 +1,4 @@
-"""Tests for camera entities — placeholder image and stream_source gating."""
+﻿"""Tests for camera entities — placeholder image and stream_source gating."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.camera import (
+from custom_components.comelit_man.camera import (
     ComelitIntercomCamera,
 )
-from custom_components.comelit_intercom_local.placeholder import PLACEHOLDER_JPEG
-from custom_components.comelit_intercom_local.models import PushEvent
+from custom_components.comelit_man.placeholder import PLACEHOLDER_JPEG
+from custom_components.comelit_man.models import PushEvent
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ async def test_stream_source_returns_none_when_no_session_and_timeout(camera):
         coro.close()
         raise TimeoutError
 
-    with patch("custom_components.comelit_intercom_local.camera.asyncio.wait_for", _timeout):
+    with patch("custom_components.comelit_man.camera.asyncio.wait_for", _timeout):
         url = await camera.stream_source()
     assert url is None
 

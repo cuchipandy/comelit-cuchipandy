@@ -1,4 +1,4 @@
-"""Unit tests for token extraction — no device needed."""
+﻿"""Unit tests for token extraction — no device needed."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.exceptions import TokenExtractionError
-from custom_components.comelit_intercom_local.token import (
+from custom_components.comelit_man.exceptions import TokenExtractionError
+from custom_components.comelit_man.token import (
     _parse_token_from_archive,
     extract_token,
 )
@@ -120,7 +120,7 @@ class TestExtractToken:
         session = _make_session(login_resp, backup_resp, list_resp, dl_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with patch("asyncio.sleep", AsyncMock()):
@@ -135,7 +135,7 @@ class TestExtractToken:
         session = _make_session(login_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with pytest.raises(TokenExtractionError, match="Login failed with status 403"):
@@ -148,7 +148,7 @@ class TestExtractToken:
         session = _make_session(login_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with pytest.raises(TokenExtractionError, match="Login failed"):
@@ -162,7 +162,7 @@ class TestExtractToken:
         session = _make_session(login_resp, backup_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with patch("asyncio.sleep", AsyncMock()):
@@ -178,7 +178,7 @@ class TestExtractToken:
         session = _make_session(login_resp, backup_resp, list_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with patch("asyncio.sleep", AsyncMock()):
@@ -195,7 +195,7 @@ class TestExtractToken:
         session = _make_session(login_resp, backup_resp, list_resp, dl_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with patch("asyncio.sleep", AsyncMock()):
@@ -211,7 +211,7 @@ class TestExtractToken:
         session = _make_session(login_resp, backup_resp, list_resp)
 
         with patch(
-            "custom_components.comelit_intercom_local.token.aiohttp.ClientSession",
+            "custom_components.comelit_man.token.aiohttp.ClientSession",
             return_value=session,
         ):
             with patch("asyncio.sleep", AsyncMock()):

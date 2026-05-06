@@ -1,4 +1,4 @@
-"""Unit tests for door open sequences — no device needed."""
+﻿"""Unit tests for door open sequences — no device needed."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_intercom_local.door import open_door
-from custom_components.comelit_intercom_local.exceptions import DoorOpenError
-from custom_components.comelit_intercom_local.models import DeviceConfig, Door
+from custom_components.comelit_man.door import open_door
+from custom_components.comelit_man.exceptions import DoorOpenError
+from custom_components.comelit_man.models import DeviceConfig, Door
 
 HOST = "127.0.0.1"
 PORT = 64100
@@ -91,7 +91,7 @@ class TestOpenDoorFastPath:
         door = _make_door()
 
         with patch(
-            "custom_components.comelit_intercom_local.door.IconaBridgeClient"
+            "custom_components.comelit_man.door.IconaBridgeClient"
         ) as mock_cls:
             await open_door(HOST, PORT, TOKEN, client, config, door)
 
@@ -137,9 +137,9 @@ def _standalone_patches():
     return_value to a _make_client() instance before calling open_door.
     """
     return (
-        patch("custom_components.comelit_intercom_local.door.IconaBridgeClient"),
-        patch("custom_components.comelit_intercom_local.door.authenticate", new_callable=AsyncMock),
-        patch("custom_components.comelit_intercom_local.door.ctpp_init_sequence", new_callable=AsyncMock),
+        patch("custom_components.comelit_man.door.IconaBridgeClient"),
+        patch("custom_components.comelit_man.door.authenticate", new_callable=AsyncMock),
+        patch("custom_components.comelit_man.door.ctpp_init_sequence", new_callable=AsyncMock),
     )
 
 
