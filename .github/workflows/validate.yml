@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -63,4 +63,5 @@ jobs:
             tests/test_event_entity.py \
             tests/test_button.py \
             tests/test_push.py \
+            tests/test_ha_component.py \
             -v

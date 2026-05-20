@@ -16,7 +16,7 @@ from custom_components.comelit_man.coordinator import (
 )
 from custom_components.comelit_man.exceptions import (
     AuthenticationError,
-    ConnectionError as ComelitConnectionError,
+    ConnectionComelitError,
 )
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ TOKEN = "abc123"
 def _make_config() -> DeviceConfig:
     return DeviceConfig(
         apt_address="00000001",
-        doors=[Door(id=1, name="Front", apt_address="00000001", output_index=0)],
+        doors=[Door(id=1, index=0, name="Front", apt_address="00000001", output_index=0)],
         cameras=[Camera(id=1, name="Cam1", rtsp_url="rtsp://cam")],
     )
 
@@ -46,7 +46,10 @@ def _make_hass() -> MagicMock:
 
 
 def _make_coordinator(hass=None) -> ComelitLocalCoordinator:
-    return ComelitLocalCoordinator(hass or _make_hass(), HOST, PORT, TOKEN)
+    entry = MagicMock()
+    entry.options = {}
+    entry.title = "Test Intercom"
+    return ComelitLocalCoordinator(hass or _make_hass(), entry, HOST, PORT, TOKEN)
 
 
 def _mock_client():
@@ -72,6 +75,9 @@ class TestCoordinatorSetup:
         config = _make_config()
         client = _mock_client()
 
+        mock_rtsp = MagicMock()
+        mock_rtsp.start = AsyncMock(return_value="rtsp://127.0.0.1:8557/live")
+
         with (
             patch(
                 "custom_components.comelit_man.coordinator.IconaBridgeClient",
@@ -90,6 +96,11 @@ class TestCoordinatorSetup:
                 "custom_components.comelit_man.coordinator.register_push",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "custom_components.comelit_man.coordinator.LocalRtspServer",
+                return_value=mock_rtsp,
+            ),
+            patch.object(coord, "_start_keepalive"),
         ):
             await coord.async_setup()
 
@@ -300,6 +311,7 @@ class TestCoordinatorReconnect:
                 "custom_components.comelit_man.coordinator.register_push",
                 new_callable=AsyncMock,
             ),
+            patch.object(coord, "_start_keepalive"),
         ):
             await coord._reconnect()
 
@@ -437,11 +449,11 @@ class TestConfigFlow:
 
         with (
             patch(
-                "custom_components.comelit_man.client.IconaBridgeClient",
+                "custom_components.comelit_man.config_flow.IconaBridgeClient",
                 return_value=client,
             ),
             patch(
-                "custom_components.comelit_man.auth.authenticate",
+                "custom_components.comelit_man.config_flow.authenticate",
                 new_callable=AsyncMock,
             ),
         ):
@@ -461,11 +473,11 @@ class TestConfigFlow:
 
         with (
             patch(
-                "custom_components.comelit_man.client.IconaBridgeClient",
+                "custom_components.comelit_man.config_flow.IconaBridgeClient",
                 return_value=client,
             ),
             patch(
-                "custom_components.comelit_man.auth.authenticate",
+                "custom_components.comelit_man.config_flow.authenticate",
                 new_callable=AsyncMock,
                 side_effect=AuthenticationError("bad"),
             ),
@@ -478,13 +490,13 @@ class TestConfigFlow:
 
     @pytest.mark.asyncio
     async def test_connection_error(self):
-        """ConnectionError → errors['base'] = 'cannot_connect'."""
+        """ConnectionComelitError → errors['base'] = 'cannot_connect'."""
         flow = self._make_flow()
         client = _mock_client()
-        client.connect.side_effect = ComelitConnectionError("refused")
+        client.connect.side_effect = ConnectionComelitError("refused")
 
         with patch(
-            "custom_components.comelit_man.client.IconaBridgeClient",
+            "custom_components.comelit_man.config_flow.IconaBridgeClient",
             return_value=client,
         ):
             result = await flow.async_step_user(self._base_input())
@@ -495,20 +507,14 @@ class TestConfigFlow:
 
     @pytest.mark.asyncio
     async def test_timeout_error(self):
-        """asyncio.TimeoutError → errors['base'] = 'cannot_connect'."""
+        """TimeoutError → errors['base'] = 'cannot_connect'."""
         flow = self._make_flow()
         client = _mock_client()
+        client.connect.side_effect = TimeoutError("timeout")
 
-        with (
-            patch(
-                "custom_components.comelit_man.client.IconaBridgeClient",
-                return_value=client,
-            ),
-            patch(
-                "asyncio.wait_for",
-                new_callable=AsyncMock,
-                side_effect=asyncio.TimeoutError(),
-            ),
+        with patch(
+            "custom_components.comelit_man.config_flow.IconaBridgeClient",
+            return_value=client,
         ):
             result = await flow.async_step_user(self._base_input())
 
@@ -524,15 +530,15 @@ class TestConfigFlow:
 
         with (
             patch(
-                "custom_components.comelit_man.client.IconaBridgeClient",
+                "custom_components.comelit_man.config_flow.IconaBridgeClient",
                 return_value=client,
             ),
             patch(
-                "custom_components.comelit_man.auth.authenticate",
+                "custom_components.comelit_man.config_flow.authenticate",
                 new_callable=AsyncMock,
             ),
             patch(
-                "custom_components.comelit_man.token.extract_token",
+                "custom_components.comelit_man.config_flow.extract_token",
                 new_callable=AsyncMock,
                 return_value="extracted_token_123",
             ),
@@ -568,16 +574,19 @@ class TestSetupUnload:
 
     @pytest.mark.asyncio
     async def test_setup_entry_success(self):
-        """Setup succeeds → coordinator stored in hass.data, platforms forwarded."""
-        from custom_components.comelit_local import async_setup_entry
-        from custom_components.comelit_man.const import DOMAIN
+        """Setup succeeds → coordinator stored in entry.runtime_data, platforms forwarded."""
+        from custom_components.comelit_man import async_setup_entry
 
         hass = _make_hass()
         entry = MagicMock()
         entry.data = {"host": HOST, "port": PORT, "token": TOKEN}
         entry.entry_id = "test_entry_id"
+        entry.options = {}
+        entry.title = "Test Intercom"
 
         config = _make_config()
+        mock_rtsp = MagicMock()
+        mock_rtsp.start = AsyncMock(return_value="rtsp://127.0.0.1:8557/live")
 
         with (
             patch(
@@ -597,35 +606,39 @@ class TestSetupUnload:
                 "custom_components.comelit_man.coordinator.register_push",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "custom_components.comelit_man.coordinator.LocalRtspServer",
+                return_value=mock_rtsp,
+            ),
+            patch(
+                "custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"
+            ),
         ):
             result = await async_setup_entry(hass, entry)
 
         assert result is True
-        assert DOMAIN in hass.data
-        assert entry.entry_id in hass.data[DOMAIN]
-        coordinator = hass.data[DOMAIN][entry.entry_id]
-        assert isinstance(coordinator, ComelitLocalCoordinator)
+        assert isinstance(entry.runtime_data, ComelitLocalCoordinator)
         hass.config_entries.async_forward_entry_setups.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_setup_entry_fails_raises_config_entry_not_ready(self):
-        """Setup fails → ConfigEntryNotReady raised."""
-        from custom_components.comelit_local import async_setup_entry
+        """Connection timeout → ConfigEntryNotReady raised."""
+        from custom_components.comelit_man import async_setup_entry
         from tests.conftest import _ConfigEntryNotReady
 
         hass = _make_hass()
         entry = MagicMock()
         entry.data = {"host": HOST, "port": PORT, "token": TOKEN}
+        entry.options = {}
+        entry.title = "Test Intercom"
+
+        client = _mock_client()
+        client.connect.side_effect = TimeoutError("timeout")
 
         with (
             patch(
                 "custom_components.comelit_man.coordinator.IconaBridgeClient",
-                return_value=_mock_client(),
-            ),
-            patch(
-                "custom_components.comelit_man.coordinator.authenticate",
-                new_callable=AsyncMock,
-                side_effect=AuthenticationError("bad"),
+                return_value=client,
             ),
             pytest.raises(_ConfigEntryNotReady),
         ):
@@ -633,20 +646,21 @@ class TestSetupUnload:
 
     @pytest.mark.asyncio
     async def test_unload_entry(self):
-        """Unload → coordinator.async_shutdown() called."""
-        from custom_components.comelit_local import (
-            async_setup_entry,
-            async_unload_entry,
-        )
-        from custom_components.comelit_man.const import DOMAIN
+        """Unload → coordinator.async_shutdown() called, client disconnected."""
+        from custom_components.comelit_man import async_setup_entry, async_unload_entry
 
         hass = _make_hass()
         entry = MagicMock()
         entry.data = {"host": HOST, "port": PORT, "token": TOKEN}
         entry.entry_id = "test_entry_id"
+        entry.options = {}
+        entry.title = "Test Intercom"
 
         config = _make_config()
         mock_client = _mock_client()
+        mock_rtsp = MagicMock()
+        mock_rtsp.start = AsyncMock(return_value="rtsp://127.0.0.1:8557/live")
+        mock_rtsp.stop = AsyncMock()
 
         with (
             patch(
@@ -666,6 +680,13 @@ class TestSetupUnload:
                 "custom_components.comelit_man.coordinator.register_push",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "custom_components.comelit_man.coordinator.LocalRtspServer",
+                return_value=mock_rtsp,
+            ),
+            patch(
+                "custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"
+            ),
         ):
             await async_setup_entry(hass, entry)
 
@@ -673,4 +694,3 @@ class TestSetupUnload:
 
         assert result is True
         mock_client.disconnect.assert_awaited_once()
-        assert entry.entry_id not in hass.data[DOMAIN]

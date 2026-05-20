@@ -7,12 +7,16 @@ Run ALL of these before responding to any user message.
 1. `git -C "C:/Users/micha/code/comelit-man" status`
 2. `git -C "C:/Users/micha/code/comelit-man" log --oneline -5`
 3. Read `custom_components/comelit_man/manifest.json` → note version
-4. Read memory file `memory/comelit_man_audit.md` → note quality tier and any unverified items
+4. Read memory file `memory/comelit_man_audit.md` → note (a) quality tier, (b) `Last full sweep` date, (c) `**Stale rows:**` count from the summary block at the top.
 
 **Output before anything else:**
 ```
-STARTUP OK | branch: <name> | version: <x.y.z> | quality: <tier> | audit: <YYYY-MM-DD>
+STARTUP OK | branch: <name> | version: <x.y.z> | quality: <tier> | audit: <YYYY-MM-DD> | STALE: <count>
 ```
+- `audit:` is the `Last full sweep` date.
+- `STALE:` is the `**Stale rows:**` count.
+- If `STALE` ≥ 1 OR the audit date is more than 90 days ago, flag it on the next line and ask the user whether to refresh the affected rows before continuing. A row is stale when its `Verified` date is >90 days old OR older than the current `manifest.json` minor version.
+
 This checklist is not optional. "Resume directly" does not skip it.
 
 ---
@@ -48,7 +52,7 @@ Home Assistant custom component for the **Comelit 6701W** WiFi video intercom. C
 | `tests/test_*.py` | One file per source module |
 | `.github/workflows/validate.yml` | CI: HACS, hassfest, ruff, pytest |
 
-Platforms: `BUTTON, CAMERA, EVENT` | Min HA: `2024.1` | Repo: `https://github.com/mnestrud/comelit-man`
+Platforms: `BUTTON, CAMERA, EVENT` | Min HA: `2026.1.0` | Repo: `https://github.com/mnestrud/comelit-man`
 
 ---
 
@@ -203,9 +207,9 @@ Three code paths selected automatically by `coordinator.async_open_door`:
 
 **Path 1 — video active** (`video_call.py`): single `0x1840/0x000D` message on existing CTPP channel.
 
-**Path 2 — VIP listener active, no video** (`door.py` → `open_door_fast`): reuse open CTPP channel; skips init handshake.
+**Path 2 — VIP listener active, no video** (`door.py` → `open_door`, fast path): reuse open CTPP channel; skips init handshake.
 
-**Path 3 — no CTPP channel open** (`door.py` → `open_door_standalone`): transient `CTPP_DOOR` channel with full `ctpp_init_sequence`.
+**Path 3 — no CTPP channel open** (`door.py` → `open_door`, standalone path): opens transient `CTPP_DOOR` channel with full `ctpp_init_sequence`.
 
 ---
 

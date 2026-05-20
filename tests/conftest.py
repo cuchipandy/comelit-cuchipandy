@@ -29,11 +29,12 @@ class _DataUpdateCoordinator:
         """Allow DataUpdateCoordinator[T] syntax."""
         return cls
 
-    def __init__(self, hass, logger, *, name, update_interval):
+    def __init__(self, hass, logger, *, name, update_interval, config_entry=None):
         self.hass = hass
         self.logger = logger
         self.name = name
         self.update_interval = update_interval
+        self.config_entry = config_entry
 
     def async_set_updated_data(self, data):
         """No-op in tests."""
@@ -218,6 +219,16 @@ sys.modules["homeassistant.components.camera"] = _ha_camera
 sys.modules["homeassistant.components.event"] = _ha_event
 sys.modules["homeassistant.helpers.entity"] = _ha_helpers_entity
 sys.modules["homeassistant.helpers.entity_platform"] = _ha_entity_platform
+
+# Stub for voluptuous (used in config_flow.py)
+_vol = MagicMock()
+_vol.Schema = lambda x, **kw: x
+_vol.Required = lambda key, **kw: key
+_vol.Optional = lambda key, **kw: key
+_vol.All = lambda *a, **kw: a[0] if a else None
+_vol.coerce = lambda t: t
+_vol.In = lambda choices: choices
+sys.modules["voluptuous"] = _vol
 
 import pytest
 

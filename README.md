@@ -47,6 +47,16 @@ After setup, you can configure the integration via **Settings → Integrations �
 
 Changing this setting reloads the integration automatically.
 
+## Removing the integration
+
+1. Go to **Settings → Devices & Services**
+2. Find **Comelit Man** and open it
+3. Click the three-dot menu → **Delete**
+4. Confirm deletion
+5. Restart Home Assistant
+
+The integration does not persist any state outside the config entry, so no manual cleanup is needed. The device's push-channel registration will lapse naturally once the keepalive probes stop.
+
 ## Entities
 
 | Entity | Description |

@@ -75,9 +75,16 @@ class TestOnPush:
 
     def test_unknown_event_type_ignored(self):
         entity = _make_entity()
-        entity._on_push(_push_event("door_opened"))
+        entity._on_push(_push_event("some_unrecognized_type"))
 
         assert len(entity._events) == 0
+
+    def test_door_opened_event_fired(self):
+        entity = _make_entity()
+        entity._on_push(_push_event("door_opened"))
+
+        assert len(entity._events) == 1
+        assert entity._events[0]["event_type"] == "door_opened"
 
     def test_apt_address_included_in_event_data(self):
         entity = _make_entity()

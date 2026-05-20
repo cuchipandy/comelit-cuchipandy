@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4.3
+
+- **Rename**: integration domain changed from `comelit_local` to `comelit_man` — all entity IDs, domain references, and Lovelace card URLs updated
+- **Feature**: `door_opened` VIP event now exposed as an event type on `event.<name>_doorbell`
+- **Fix**: RTSP server binds to fixed port 8557 for static go2rtc configuration
+
 ## 0.1.4.2
 
 **Door open fixes:**
