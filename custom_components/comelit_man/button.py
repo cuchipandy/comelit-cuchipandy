@@ -7,16 +7,17 @@ import logging
 import time
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, MODEL
 from .coordinator import ComelitLocalConfigEntry, ComelitLocalCoordinator
+from .entity import ComelitEntity
 from .models import Door
 
 _LOGGER = logging.getLogger(__name__)
+
+PARALLEL_UPDATES = 0
 
 
 async def async_setup_entry(
@@ -42,11 +43,10 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class ComelitDoorButton(CoordinatorEntity[ComelitLocalCoordinator], ButtonEntity):
+class ComelitDoorButton(ComelitEntity, ButtonEntity):
     """Button entity to open a Comelit door."""
 
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:door-open"
+    _attr_translation_key = "door"
 
     def __init__(
         self,
@@ -55,21 +55,10 @@ class ComelitDoorButton(CoordinatorEntity[ComelitLocalCoordinator], ButtonEntity
         entry_id: str,
     ) -> None:
         """Initialize the door button entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, entry_id)
         self._door = door
-        self._entry_id = entry_id
         self._attr_unique_id = f"{entry_id}_door_{door.index}"
         self._attr_name = door.name
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info linking this button to the main intercom device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            name=self.coordinator.device_name,
-        )
 
     async def async_press(self) -> None:
         """Open the door when pressed."""
@@ -104,12 +93,12 @@ class ComelitDoorButton(CoordinatorEntity[ComelitLocalCoordinator], ButtonEntity
             await self.coordinator.async_stop_video()
 
 
-class ComelitStartVideoButton(CoordinatorEntity[ComelitLocalCoordinator], ButtonEntity):
+class ComelitStartVideoButton(ComelitEntity, ButtonEntity):
     """Button entity to start intercom video feed."""
 
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:video"
-    _attr_name = "Start Video Feed"
+    _attr_translation_key = "video_start"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -117,19 +106,8 @@ class ComelitStartVideoButton(CoordinatorEntity[ComelitLocalCoordinator], Button
         entry_id: str,
     ) -> None:
         """Initialize the start video button entity."""
-        super().__init__(coordinator)
-        self._entry_id = entry_id
+        super().__init__(coordinator, entry_id)
         self._attr_unique_id = f"{entry_id}_video_start"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info linking this button to the main intercom device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            name=self.coordinator.device_name,
-        )
 
     async def async_press(self) -> None:
         """Start intercom video when pressed."""
@@ -144,12 +122,12 @@ class ComelitStartVideoButton(CoordinatorEntity[ComelitLocalCoordinator], Button
             _LOGGER.exception("Failed to start intercom video after %.1fs", time.monotonic() - t0)
 
 
-class ComelitStopVideoButton(CoordinatorEntity[ComelitLocalCoordinator], ButtonEntity):
+class ComelitStopVideoButton(ComelitEntity, ButtonEntity):
     """Button entity to stop intercom video feed."""
 
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:video-off"
-    _attr_name = "Stop Video Feed"
+    _attr_translation_key = "video_stop"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -157,19 +135,8 @@ class ComelitStopVideoButton(CoordinatorEntity[ComelitLocalCoordinator], ButtonE
         entry_id: str,
     ) -> None:
         """Initialize the stop video button entity."""
-        super().__init__(coordinator)
-        self._entry_id = entry_id
+        super().__init__(coordinator, entry_id)
         self._attr_unique_id = f"{entry_id}_video_stop"
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info linking this button to the main intercom device."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._entry_id)},
-            manufacturer=MANUFACTURER,
-            model=MODEL,
-            name=self.coordinator.device_name,
-        )
 
     async def async_press(self) -> None:
         """Stop intercom video when pressed."""

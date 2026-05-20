@@ -1,5 +1,21 @@
-﻿{
+{
   "entity": {
+    "button": {
+      "door": {
+        "name": "Door"
+      },
+      "video_start": {
+        "name": "Start Video Feed"
+      },
+      "video_stop": {
+        "name": "Stop Video Feed"
+      }
+    },
+    "camera": {
+      "intercom_camera": {
+        "name": "Live Feed"
+      }
+    },
     "event": {
       "doorbell": {
         "name": "Doorbell"

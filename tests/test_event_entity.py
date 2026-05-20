@@ -20,7 +20,7 @@ def _make_entity() -> ComelitDoorbellEvent:
     coordinator = MagicMock()
     coordinator.add_push_callback = MagicMock(return_value=lambda: None)
     entity = ComelitDoorbellEvent.__new__(ComelitDoorbellEvent)
-    entity._coordinator = coordinator
+    entity.coordinator = coordinator
     entity._entry_id = "test_entry_id"
     entity._attr_unique_id = "test_entry_id_doorbell"
     entity._events = []  # from _EventEntity stub
@@ -118,7 +118,7 @@ class TestAsyncAddedToHass:
 
         await entity.async_added_to_hass()
 
-        entity._coordinator.add_push_callback.assert_called_once()
+        entity.coordinator.add_push_callback.assert_called_once()
         # async_on_remove should have been called with the unsubscribe function
         assert len(removed) == 1
 
@@ -134,7 +134,7 @@ class TestAsyncAddedToHass:
             captured_callback = cb
             return lambda: None
 
-        entity._coordinator.add_push_callback = fake_add_push_callback
+        entity.coordinator.add_push_callback = fake_add_push_callback
 
         await entity.async_added_to_hass()
 
