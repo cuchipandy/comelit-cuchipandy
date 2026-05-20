@@ -1,9 +1,9 @@
 # Comelit Man — Quality Audit
 
-**Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20; Bundle A+B applied 2026-05-20; Bundle CDEF applied 2026-05-20
+**Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20; Bundle A+B applied 2026-05-20; Bundle CDEF applied 2026-05-20; BL-006/010/036 applied 2026-05-20
 **Version at audit:** 0.1.4.3
 **Tier claim (CLAUDE.md):** Bronze (initial)
-**Tier verdict (audited):** Bronze PASS; Silver NOT YET (1 FAIL remaining — test-coverage BL-023); Gold NOT YET (0 confirmed FAIL remaining — all gold rules implemented; pending hassfest/CI verification); Platinum NOT YET (1 FAIL remaining — strict-typing BL-010); Beyond A-D 13/13 PASS; Beyond D 1 PASS (logger audit done); Beyond E 4 PASS / 2 PARTIAL / 16 N/A of 22 ADRs; Beyond F 4 PASS / 1 accepted-FAIL of 5; Beyond G 3 PASS / 1 PARTIAL / 1 N/A of 5; Beyond H 1 PASS / 1 PARTIAL of 2 (BL-036 LOCKED/approved-on-request)
+**Tier verdict (audited):** Bronze PASS; Silver NOT YET (1 FAIL remaining — test-coverage BL-023); Gold NOT YET (0 confirmed FAIL remaining — all gold rules implemented; pending hassfest/CI verification); Platinum NOT YET (1 FAIL remaining — inject-websession BL-024); Beyond A-D 13/13 PASS; Beyond D 1 PASS (logger audit done); Beyond E 4 PASS / 2 PARTIAL / 16 N/A of 22 ADRs; Beyond F 4 PASS / 1 accepted-FAIL of 5; Beyond G 3 PASS / 1 PARTIAL / 1 N/A of 5; Beyond H 2 PASS / 0 PARTIAL of 2
 **Stale rows:** 0 (sum of Stale columns across all dashboards). When this becomes ≥1, schedule re-verification of the affected rows.
 **Next review due:** when all sweeps land OR +90 days from last full sweep, whichever first
 **Freshness rule:** any row is `STALE` if `Verified` date > 90 days old OR older than the current `manifest.json` minor version (`0.1.x`).
@@ -38,7 +38,7 @@ Verdict is `MET` only when every rule in the tier is `PASS` or `N/A`.
 | Bronze   | 14 | 1 | 1 | 2 | 0 | 0 | 18 | NOT YET — `brands` FAIL is *accepted* (won't fix); 1 PARTIAL remaining (BL-020 common-modules) |
 | Silver   | 4 | 3 | 2 | 1 | 0 | 0 | 10 | NOT YET (3 FAIL, 2 PARTIAL) |
 | Gold     | 4 | 10 | 4 | 3 | 0 | 0 | 21 | NOT YET (10 FAIL, 4 PARTIAL) |
-| Platinum | 1 |  2 | 0 | 0 | 0 | 0 |  3 | NOT YET (2 FAIL) |
+| Platinum | 2 |  1 | 0 | 0 | 0 | 0 |  3 | NOT YET (1 FAIL — inject-websession BL-024) |
 
 Beyond-scale dashboard:
 
@@ -51,7 +51,7 @@ Beyond-scale dashboard:
 | E — HA ADR compliance | 5 | 0 | 1 | 16 | 0 | 0 | 22 |
 | F — HACS submission | 4 | 0 | 0 | 1 | 0 | 0 | 5 |
 | G — Automated checks | 4 | 0 | 0 | 1 | 0 | 0 | 5 |
-| H — LOCKED-file boundary | 1 | 0 | 1 | 0 | 0 | 0 | 2 |
+| H — LOCKED-file boundary | 2 | 0 | 0 | 0 | 0 | 0 | 2 |
 
 ---
 
@@ -67,7 +67,7 @@ Rule URL pattern: `https://developers.home-assistant.io/docs/core/integration-qu
 | common-modules | PARTIAL | `coordinator.py` exists ✓. No shared `entity.py` base class — each entity file (`button.py:45,107,147`, `camera.py:47,83`, `event.py:31`) re-implements `device_info`/`_attr_has_entity_name` boilerplate. Rule wants common patterns extracted. | 2026-05-06 | BL-020 |
 | config-flow | PASS | `manifest.json:5` `"config_flow": true`. `config_flow.py:37` `ComelitLocalConfigFlow` with `async_step_user` (line 49). Translations present in `strings.json:22-54` and `translations/en.json`. Options flow in `config_flow.py:107`. | 2026-05-06 | — |
 | config-flow-test-coverage | PASS | `tests/test_ha_component.py` fully repaired 2026-05-20: stale imports fixed, constructor signature updated, patch paths corrected, `hass.data`→`entry.runtime_data` assertions updated, voluptuous stub added to conftest. File added to CI test list (`validate.yml`). 24/24 tests pass. | 2026-05-20 | — |
-| dependency-transparency | PASS | `manifest.json:10` declares `"requirements": ["aiohttp>=3.9", "av>=12.0.0"]`. Both are pinned with lower bounds (no upper bounds — Platinum concern, not Bronze). | 2026-05-06 | — |
+| dependency-transparency | PASS | `manifest.json:10` declares `"requirements": ["aiohttp>=3.9,<4", "av>=12.0.0,<13"]`. Both are pinned with lower and upper bounds (upper bounds added 2026-05-20 via BL-006). | 2026-05-20 | — |
 | docs-actions | N/A | No service actions exist (cross-link to `action-setup`). | 2026-05-06 | — |
 | docs-high-level-description | PASS | `README.md:1-11` opens with brand/product overview ("Home Assistant custom component for the Comelit 6701W WiFi video intercom...") and feature bullets. | 2026-05-06 | — |
 | docs-installation-instructions | PASS | `README.md:19-48` "Installation" (HACS + manual) and "Configuration" sections with step-by-step setup including prerequisites at `README.md:13-17`. | 2026-05-06 | — |
@@ -127,7 +127,7 @@ Rule URL pattern: `https://developers.home-assistant.io/docs/core/integration-qu
 |---|---|---|---|---|
 | async-dependency | PASS | `aiohttp` is async-native ✓. `av` (PyAV) is synchronous but correctly offloaded: `rtp_receiver.py:470,533` uses `loop.run_in_executor(None, ...)` for both codec init and frame decode, so the event loop is never blocked by FFmpeg calls. All internal modules are async (`client.py`, `auth.py`, `coordinator.py`, `vip_listener.py`, etc.). | 2026-05-06 | — |
 | inject-websession | FAIL | `token.py:37` creates its own session: `async with aiohttp.ClientSession(timeout=timeout) as session:`. Should use HA's `homeassistant.helpers.aiohttp_client.async_get_clientsession(hass)` instead. `extract_token` is called from `config_flow.py:67` where `self.hass` is available, so plumbing is straightforward. | 2026-05-06 | BL-024 |
-| strict-typing | FAIL | No `pyproject.toml`, `mypy.ini`, `setup.cfg`, or `py.typed` marker file (Bash find confirmed all absent). No mypy step in `validate.yml`. Source has type hints throughout (e.g., `coordinator.py:38-46`) but no strict-mode enforcement. | 2026-05-06 | BL-006, BL-010 |
+| strict-typing | PASS | `pyproject.toml` created with `[tool.mypy] strict = true`; `custom_components/comelit_man/py.typed` marker added; `validate.yml` `typecheck` job runs `mypy custom_components/comelit_man/` on every push+PR. All three requirements for platinum:strict-typing met (2026-05-20, BL-006/BL-010). | 2026-05-20 | — |
 
 ---
 
@@ -223,7 +223,7 @@ ADR index pulled from `https://github.com/home-assistant/architecture/tree/maste
 
 | Check | Status | Evidence (path:line / SHA) | Verified | Action (BL-NNN) |
 |---|---|---|---|---|
-| `door.py` audited read-only — findings filed as `Locked: YES` | PARTIAL | **151 lines.** **Findings:** (1) **Latent `NameError` in `finally`** — `door.py:60-63` references `opened_channel`, which is assigned at line 47 inside the `try` block. If `client.get_channel("CTPP")` at line 46 raises (uncommon — dict lookup returning None — but possible on a torn-down client), `opened_channel` is unbound and the finally block throws `NameError`, masking the original exception. Defensive: initialize `opened_channel = False` before `try:`. (2) **Parameter shadowing** — `door.py:49` rebinds the `client` parameter when opening a transient channel; reviewer-cognitive load. Style only; correctness unaffected. (3) **`AuthenticationError` mapping** — Path 3 (`door.py:51`) re-authenticates the transient client; if the token has been rotated, the resulting `AuthenticationError` is wrapped in `DoorOpenError` at `door.py:59` rather than surfaced to trigger the reauth flow (when BL-004 lands). (4) **CLAUDE.md drift** — CLAUDE.md "Door Control" section refers to `open_door_fast` and `open_door_standalone`; the file actually has a single `open_door` entry point that branches internally. Functional behaviour matches the documented logic but the function names are wrong. (5) **Logging:** `door.py:57` info-level "Door 'X' opened successfully (regular path)/(fast path)" — once per door press, appropriate level. No token leakage. | 2026-05-06 | BL-036 (defensive NameError fix — Locked), BL-037 (CLAUDE.md update — not Locked), BL-038 (auth-error reauth mapping — coordinator wrapper, may avoid Locked-file edit) |
+| `door.py` audited read-only — findings filed as `Locked: YES` | PASS | **BL-036 applied 2026-05-20 (user approved).** `opened_channel = False` initialized before `try:` at `door.py:46` — NameError guard in place. All other findings resolved: BL-037 (CLAUDE.md drift) Done; BL-038 (auth-error reauth) Done. No outstanding LOCKED-file findings remaining. | 2026-05-20 | — |
 | `video_call.py` audited read-only — findings filed as `Locked: YES` | PASS — with notes | **859 lines.** Reflects a mature, protocol-faithful implementation: 11-step `start()`, separate `_ctpp_monitor_loop` with `0x1840`/`0x1860`/`0x1800` state machine, 9-step `_inline_reestablish` for CALL_END recovery without TCP reconnect, audio answer sequence, three independent counters (init_ts, call_ts, call_counter) with PCAP-verified increments (`_CTR_INCR_BYTE4`/`BYTE5`/`BOTH`). **Strengths:** every magic number has a `# PCAP-verified:` justification comment; `_ctpp_lock` correctly serialises counter mutation between CTPP monitor / door-during-video / answer sequence; `_cleanup` (line 517) cancels all tracked tasks with a 2 s timeout each (avoids the 30-40 s freeze on dead TCP observed on 3.14/aarch64); `VIDEO_CHANNEL_NAMES` enumeration prevents leaking channel registrations on cleanup. **Findings:** (1) **One untracked fire-and-forget task** — `video_call.py:483` `asyncio.create_task(self._run_answer_sequence(...))` is not assigned to any instance attribute, so `_cleanup()` cannot cancel it. The wrapping `_run_answer_sequence` already swallows exceptions, so failure mode is silent rather than crashing. Cross-link to BL-032 (filed in Sweep 4a). (2) **`_LOGGER.debug` UDPM token** at line 295 — ephemeral 16-bit stream identifier, not a secret (re-confirmed from Sweep 4a). (3) **Info-level logs** (lines 473, 500, 514, 825, 845, 854) all fire once per session in normal flow — appropriate level. (4) **Type hints** complete throughout; `"Channel"` forward-refs used at lines 124, 172, 583, 678. (5) **Tests** in CI: `tests/test_video_call.py` and `tests/test_video_signaling.py` per `validate.yml:55-57`. The 9-step `_inline_reestablish` path is the highest-risk untested branch — out-of-scope for this read-only sweep, but flagged for BL-023 test-coverage planning. | 2026-05-06 | BL-032 (already filed — covers video_call.py:483); audit observation only — no LOCKED edits proposed |
 
 ---
