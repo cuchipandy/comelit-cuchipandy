@@ -13,6 +13,8 @@ import re
 import tarfile
 
 import aiohttp
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .exceptions import TokenExtractionError
 
@@ -20,11 +22,14 @@ _LOGGER = logging.getLogger(__name__)
 
 TOKEN_PATTERN = re.compile(r'9:4:"([a-f0-9]{32})"', re.IGNORECASE)
 
+_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10)
+
 
 async def extract_token(
     host: str,
     password: str = "comelit",  # nosemgrep: hardcoded-password-default-argument
     http_port: int = 8080,
+    hass: HomeAssistant | None = None,
 ) -> str | None:
     """Extract the 32-char hex authentication token from the device backup.
 
@@ -32,79 +37,91 @@ async def extract_token(
     from an IP address, all subsequent requests from that IP are authorized.
     """
     base_url = f"http://{host}:{http_port}"
-    timeout = aiohttp.ClientTimeout(total=60, connect=10)
 
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        # Step 1: Login to establish IP-based session
-        _LOGGER.debug("Logging in to %s", base_url)
-        login_headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Referer": f"{base_url}/",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
-        async with session.post(
-            f"{base_url}/do-login.html",
-            data={"l-pwd": password},
-            headers=login_headers,
-        ) as resp:
-            if resp.status != 200:
-                raise TokenExtractionError(f"Login failed with status {resp.status}")
-            login_content = await resp.text()
-            if "Access granted" not in login_content:
-                raise TokenExtractionError("Login failed — check password")
+    if hass is not None:
+        session = async_get_clientsession(hass)
+        return await _do_extract(session, base_url, password)
 
-        _LOGGER.debug("Login successful")
+    async with aiohttp.ClientSession(timeout=_REQUEST_TIMEOUT) as session:
+        return await _do_extract(session, base_url, password)
 
-        # Step 2: Create a fresh backup
-        _LOGGER.debug("Creating backup")
-        backup_headers = {
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"{base_url}/config-backup.html",
-        }
-        async with session.post(
-            f"{base_url}/create-backup.html",
-            headers=backup_headers,
-        ) as resp:
-            create_response = await resp.text()
-            if "Backup successfully created" not in create_response:
-                _LOGGER.error("Backup creation failed: %s", create_response)
-                raise TokenExtractionError("Backup creation failed")
 
-        # Wait for the device to finish creating the backup file
-        await asyncio.sleep(2)
+async def _do_extract(session: aiohttp.ClientSession, base_url: str, password: str) -> str | None:
+    """Run the extraction steps against the given session."""
+    # Step 1: Login to establish IP-based session
+    _LOGGER.debug("Logging in to %s", base_url)
+    login_headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Referer": f"{base_url}/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+    async with session.post(
+        f"{base_url}/do-login.html",
+        data={"l-pwd": password},
+        headers=login_headers,
+        timeout=_REQUEST_TIMEOUT,
+    ) as resp:
+        if resp.status != 200:
+            raise TokenExtractionError(f"Login failed with status {resp.status}")
+        login_content = await resp.text()
+        if "Access granted" not in login_content:
+            raise TokenExtractionError("Login failed — check password")
 
-        # Step 3: Find backup link
-        _LOGGER.debug("Listing backups")
-        async with session.get(f"{base_url}/config-backup.html") as resp:
-            if resp.status != 200:
-                raise TokenExtractionError(f"Backup page returned status {resp.status}")
-            html = await resp.text()
+    _LOGGER.debug("Login successful")
 
-        backup_files = re.findall(r"([0-9]+\.tar\.gz)", html)
+    # Step 2: Create a fresh backup
+    _LOGGER.debug("Creating backup")
+    backup_headers = {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"{base_url}/config-backup.html",
+    }
+    async with session.post(
+        f"{base_url}/create-backup.html",
+        headers=backup_headers,
+        timeout=_REQUEST_TIMEOUT,
+    ) as resp:
+        create_response = await resp.text()
+        if "Backup successfully created" not in create_response:
+            _LOGGER.error("Backup creation failed: %s", create_response)
+            raise TokenExtractionError("Backup creation failed")
 
-        if not backup_files:
-            raise TokenExtractionError(
-                f"No backup files found on device. "
-                f"Page content (first 500 chars): {html[:500]}"
-            )
+    # Wait for the device to finish creating the backup file
+    await asyncio.sleep(2)
 
-        # Use the latest backup (highest number)
-        backup_files.sort()
-        latest_backup = backup_files[-1]
-        _LOGGER.debug("Using latest backup: %s", latest_backup)
+    # Step 3: Find backup link
+    _LOGGER.debug("Listing backups")
+    async with session.get(
+        f"{base_url}/config-backup.html", timeout=_REQUEST_TIMEOUT
+    ) as resp:
+        if resp.status != 200:
+            raise TokenExtractionError(f"Backup page returned status {resp.status}")
+        html = await resp.text()
 
-        # Step 4: Download the archive
-        archive_url = f"{base_url}/{latest_backup}"
-        _LOGGER.debug("Downloading backup from %s", archive_url)
-        async with session.get(archive_url) as resp:
-            if resp.status != 200:
-                raise TokenExtractionError(f"Backup download failed with status {resp.status}")
-            archive_data = await resp.read()
+    backup_files = re.findall(r"([0-9]+\.tar\.gz)", html)
 
-        _LOGGER.debug("Downloaded %d bytes", len(archive_data))
+    if not backup_files:
+        raise TokenExtractionError(
+            f"No backup files found on device. "
+            f"Page content (first 500 chars): {html[:500]}"
+        )
 
-        # Step 5: Extract token from users.cfg
-        return _parse_token_from_archive(archive_data)
+    # Use the latest backup (highest number)
+    backup_files.sort()
+    latest_backup = backup_files[-1]
+    _LOGGER.debug("Using latest backup: %s", latest_backup)
+
+    # Step 4: Download the archive
+    archive_url = f"{base_url}/{latest_backup}"
+    _LOGGER.debug("Downloading backup from %s", archive_url)
+    async with session.get(archive_url, timeout=_REQUEST_TIMEOUT) as resp:
+        if resp.status != 200:
+            raise TokenExtractionError(f"Backup download failed with status {resp.status}")
+        archive_data = await resp.read()
+
+    _LOGGER.debug("Downloaded %d bytes", len(archive_data))
+
+    # Step 5: Extract token from users.cfg
+    return _parse_token_from_archive(archive_data)
 
 
 def _parse_token_from_archive(archive_data: bytes) -> str | None:

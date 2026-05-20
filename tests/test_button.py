@@ -95,7 +95,7 @@ class TestComelitDoorButton:
 
         await btn.async_press()
 
-        btn.hass.async_create_task.assert_not_called()
+        btn.coordinator.config_entry.async_create_background_task.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_press_schedules_delayed_stop_when_session_active(self):
@@ -107,9 +107,9 @@ class TestComelitDoorButton:
 
         # Capture and close the coroutine so it doesn't leak
         created_coros = []
-        def capture_task(coro):
+        def capture_task(hass, coro, name):
             created_coros.append(coro)
-        btn.hass.async_create_task = capture_task
+        btn.coordinator.config_entry.async_create_background_task = capture_task
 
         await btn.async_press()
 
@@ -155,7 +155,7 @@ class TestComelitDoorButton:
         btn.coordinator.video_session = session
 
         # Silence the scheduled background task
-        btn.hass.async_create_task = lambda coro: coro.close()
+        btn.coordinator.config_entry.async_create_background_task = lambda hass, coro, name: coro.close()
 
         btn.coordinator.request_video_stop = MagicMock()
 

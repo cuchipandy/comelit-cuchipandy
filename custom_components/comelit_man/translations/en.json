@@ -56,6 +56,35 @@
           "token": "Leave empty to auto-extract from device using password",
           "password": "Only needed if token is not provided"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Comelit Man",
+        "description": "Authentication failed. Enter a new token or password to reconnect.",
+        "data": {
+          "token": "Authentication token (32-char hex)",
+          "password": "Device password (to auto-extract token)"
+        },
+        "data_description": {
+          "token": "Leave empty to auto-extract from device using password",
+          "password": "Only needed if token is not provided"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Comelit Man",
+        "data": {
+          "host": "Host",
+          "port": "ICONA Bridge port",
+          "http_port": "HTTP port",
+          "token": "Authentication token (32-char hex)",
+          "password": "Device password (to auto-extract token)"
+        },
+        "data_description": {
+          "host": "IP address of your Comelit device",
+          "port": "TCP port for ICONA Bridge protocol (default: 64100)",
+          "http_port": "HTTP port for device web interface (default: 8080)",
+          "token": "Leave empty to auto-extract from device using password",
+          "password": "Only needed if token is not provided"
+        }
       }
     },
     "error": {
@@ -65,7 +94,8 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "Device is already configured",
+      "another_device": "This IP address belongs to a different device that is already configured."
     }
   }
 }

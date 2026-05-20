@@ -138,3 +138,16 @@ async def async_unload_entry(
     if unload_ok:
         await entry.runtime_data.async_shutdown()
     return unload_ok
+
+
+async def async_remove_entry(
+    hass: HomeAssistant, entry: ComelitLocalConfigEntry
+) -> None:
+    """Clean up when a config entry is fully removed.
+
+    The device-side push registration (DEVICE_TOKEN) has no unregistration
+    protocol, so device-side cleanup is not possible. This hook exists to
+    satisfy HA's resource-lifecycle expectations and to allow future cleanup
+    if the protocol is extended.
+    """
+    _LOGGER.info("Comelit Man entry removed: %s (%s)", entry.title, entry.entry_id)

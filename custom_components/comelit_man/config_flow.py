@@ -64,7 +64,7 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Auto-extract token if not provided
             if not token:
                 try:
-                    token = await extract_token(host, password, http_port)
+                    token = await extract_token(host, password, http_port, self.hass)
                 except Exception as err:
                     _LOGGER.exception("Token extraction failed: %s", err)  # nosemgrep: python-logger-credential-disclosure
                     errors["base"] = "token_extraction_failed"
@@ -100,6 +100,127 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Initiate reauthentication when the stored token becomes invalid."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reauthentication — re-enter token or password."""
+        errors: dict[str, str] = {}
+        reauth_entry = self._get_reauth_entry()
+        host = reauth_entry.data[CONF_HOST]
+        port = reauth_entry.data.get(CONF_PORT, DEFAULT_PORT)
+        http_port = reauth_entry.data.get(CONF_HTTP_PORT, DEFAULT_HTTP_PORT)
+
+        if user_input is not None:
+            token = user_input.get(CONF_TOKEN, "").strip()
+            password = user_input.get(CONF_PASSWORD, "comelit")
+
+            if not token:
+                try:
+                    token = await extract_token(host, password, http_port, self.hass)
+                except Exception as err:
+                    _LOGGER.exception("Token extraction failed during reauth: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    errors["base"] = "token_extraction_failed"
+
+            if not errors:
+                client = IconaBridgeClient(host, port)
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                    await asyncio.wait_for(authenticate(client, token), timeout=10)
+                except AuthenticationError:
+                    _LOGGER.warning("Reauth failed for %s", host)
+                    errors["base"] = "invalid_auth"
+                except (TimeoutError, ComelitConnectionError, OSError) as err:
+                    _LOGGER.warning("Connection failed during reauth for %s: %s", host, err)
+                    errors["base"] = "cannot_connect"
+                finally:
+                    await client.disconnect()
+
+            if not errors:
+                return self.async_update_reload_and_abort(
+                    reauth_entry,
+                    data_updates={CONF_TOKEN: token},
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_TOKEN, default=""): str,
+                    vol.Optional(CONF_PASSWORD, default="comelit"): str,
+                }
+            ),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reconfiguration — change host/port/token without delete+re-add."""
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+        current = reconfigure_entry.data
+
+        if user_input is not None:
+            host = user_input[CONF_HOST]
+            port = user_input.get(CONF_PORT, DEFAULT_PORT)
+            http_port = user_input.get(CONF_HTTP_PORT, DEFAULT_HTTP_PORT)
+            token = user_input.get(CONF_TOKEN, "").strip()
+            password = user_input.get(CONF_PASSWORD, "comelit")
+
+            if not token:
+                try:
+                    token = await extract_token(host, password, http_port, self.hass)
+                except Exception as err:
+                    _LOGGER.exception("Token extraction failed during reconfigure: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    errors["base"] = "token_extraction_failed"
+
+            if not errors:
+                client = IconaBridgeClient(host, port)
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                    await asyncio.wait_for(authenticate(client, token), timeout=10)
+                except AuthenticationError:
+                    _LOGGER.warning("Authentication failed during reconfigure for %s", host)
+                    errors["base"] = "invalid_auth"
+                except (TimeoutError, ComelitConnectionError, OSError) as err:
+                    _LOGGER.warning("Connection failed during reconfigure for %s: %s", host, err)
+                    errors["base"] = "cannot_connect"
+                finally:
+                    await client.disconnect()
+
+            if not errors:
+                await self.async_set_unique_id(host)
+                self._abort_if_unique_id_mismatch(reason="another_device")
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_TOKEN: token,
+                        CONF_HTTP_PORT: http_port,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=current.get(CONF_HOST, "")): str,
+                    vol.Optional(CONF_PORT, default=current.get(CONF_PORT, DEFAULT_PORT)): int,
+                    vol.Optional(CONF_HTTP_PORT, default=current.get(CONF_HTTP_PORT, DEFAULT_HTTP_PORT)): int,
+                    vol.Optional(CONF_TOKEN, default=""): str,
+                    vol.Optional(CONF_PASSWORD, default="comelit"): str,
+                }
+            ),
             errors=errors,
         )
 

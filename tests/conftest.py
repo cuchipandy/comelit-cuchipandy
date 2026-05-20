@@ -53,6 +53,7 @@ class _ConfigFlow:
     """Stub for homeassistant.config_entries.ConfigFlow."""
 
     domain: str = ""
+    hass: MagicMock = MagicMock()
 
     def __init_subclass__(cls, domain: str = "", **kwargs):
         super().__init_subclass__(**kwargs)
@@ -64,12 +65,24 @@ class _ConfigFlow:
     def _abort_if_unique_id_configured(self):
         pass
 
+    def _abort_if_unique_id_mismatch(self, reason=None):
+        pass
+
+    def _get_reauth_entry(self):
+        return MagicMock()
+
+    def _get_reconfigure_entry(self):
+        return MagicMock()
+
+    def async_update_reload_and_abort(self, entry, *, data_updates=None):
+        return _ConfigFlowResult(type="abort", reason="reauth_successful")
+
     def async_create_entry(self, *, title, data):
         return _ConfigFlowResult(type="create_entry", title=title, data=data)
 
-    def async_show_form(self, *, step_id, data_schema, errors):
+    def async_show_form(self, *, step_id, data_schema, errors=None):
         return _ConfigFlowResult(
-            type="form", step_id=step_id, data_schema=data_schema, errors=errors
+            type="form", step_id=step_id, data_schema=data_schema, errors=errors or {}
         )
 
 
@@ -151,6 +164,8 @@ sys.modules["homeassistant.core"] = _ha.core
 sys.modules["homeassistant.exceptions"] = _ha_exceptions
 sys.modules["homeassistant.helpers"] = _ha_helpers
 sys.modules["homeassistant.helpers.update_coordinator"] = _ha_update_coordinator
+_ha_helpers_aiohttp = MagicMock()
+sys.modules["homeassistant.helpers.aiohttp_client"] = _ha_helpers_aiohttp
 _ha_helpers_entity = MagicMock()
 _ha_helpers_entity.DeviceInfo = dict  # DeviceInfo is dict-like
 
