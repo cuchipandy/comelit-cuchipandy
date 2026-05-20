@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.comelit_man.door import open_door
+from custom_components.comelit_man.door import open_ctpp_channel, open_door
 from custom_components.comelit_man.exceptions import DoorOpenError
 from custom_components.comelit_man.models import DeviceConfig, Door
 
@@ -269,3 +269,26 @@ class TestOpenDoorStandalonePath:
             with pytest.raises(DoorOpenError) as exc_info:
                 await open_door(HOST, PORT, TOKEN, client, config, door)
             assert exc_info.value.translation_key == "door_open_failed"
+
+
+# ---------------------------------------------------------------------------
+# open_ctpp_channel — error path (lines 99-100)
+# ---------------------------------------------------------------------------
+
+
+class TestOpenCtppChannel:
+    @pytest.mark.asyncio
+    async def test_open_ctpp_channel_wraps_error_in_door_open_error(self):
+        """open_ctpp_channel wraps ctpp_init_sequence failure in DoorOpenError."""
+        client = _make_client()
+        config = _make_config()
+
+        with (
+            patch(
+                "custom_components.comelit_man.door.ctpp_init_sequence",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("handshake failed"),
+            ),
+            pytest.raises(DoorOpenError, match="Failed to open door"),
+        ):
+            await open_ctpp_channel(client, config)

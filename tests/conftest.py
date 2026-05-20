@@ -103,6 +103,9 @@ if not _HA_INSTALLED:
         domain: str = ""
         hass: MagicMock = MagicMock()
 
+        def __init__(self) -> None:
+            self.context: dict = {}
+
         def __init_subclass__(cls, domain: str = "", **kwargs):
             super().__init_subclass__(**kwargs)
             cls.domain = domain
@@ -110,7 +113,7 @@ if not _HA_INSTALLED:
         async def async_set_unique_id(self, uid):
             pass
 
-        def _abort_if_unique_id_configured(self):
+        def _abort_if_unique_id_configured(self, **kwargs):
             pass
 
         def _abort_if_unique_id_mismatch(self, reason=None):
@@ -272,6 +275,16 @@ if not _HA_INSTALLED:
     _vol.coerce = lambda t: t
     _vol.In = lambda choices: choices
 
+    _ha_http = MagicMock()
+    _ha_frontend = MagicMock()
+    _ha_lovelace = MagicMock()
+
+    class _ResourceStorageCollection:
+        """Stub so isinstance() checks in _init_resource work correctly."""
+
+    _ha_lovelace_resources = MagicMock()
+    _ha_lovelace_resources.ResourceStorageCollection = _ResourceStorageCollection
+
     sys.modules.update({
         "homeassistant": _ha,
         "homeassistant.config_entries": _ha_config_entries,
@@ -290,6 +303,10 @@ if not _HA_INSTALLED:
         "homeassistant.components.diagnostics": _ha_diagnostics,
         "homeassistant.components.event": _ha_event,
         "homeassistant.components.repairs": _ha_repairs,
+        "homeassistant.components.http": _ha_http,
+        "homeassistant.components.frontend": _ha_frontend,
+        "homeassistant.components.lovelace": _ha_lovelace,
+        "homeassistant.components.lovelace.resources": _ha_lovelace_resources,
         "voluptuous": _vol,
     })
 

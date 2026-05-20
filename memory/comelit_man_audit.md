@@ -3,7 +3,7 @@
 **Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20; Bundle A+B applied 2026-05-20; Bundle CDEF applied 2026-05-20; BL-006/010/036 applied 2026-05-20
 **Version at audit:** 0.1.4.3
 **Tier claim (CLAUDE.md):** Bronze (initial)
-**Tier verdict (audited):** Bronze PASS; Silver NOT YET (1 FAIL remaining — test-coverage BL-023); Gold NOT YET (0 confirmed FAIL remaining — all gold rules implemented; pending hassfest/CI verification); Platinum NOT YET (1 FAIL remaining — inject-websession BL-024); Beyond A-D 13/13 PASS; Beyond D 1 PASS (logger audit done); Beyond E 4 PASS / 2 PARTIAL / 16 N/A of 22 ADRs; Beyond F 4 PASS / 1 accepted-FAIL of 5; Beyond G 3 PASS / 1 PARTIAL / 1 N/A of 5; Beyond H 2 PASS / 0 PARTIAL of 2
+**Tier verdict (audited):** Bronze PASS; Silver NOT YET (1 FAIL remaining — test-coverage BL-023); Gold NOT YET (0 confirmed FAIL remaining — all gold rules implemented; pending hassfest/CI verification); Platinum MET (all 3 rules PASS — async-dependency/inject-websession/strict-typing); Beyond A-D 13/13 PASS; Beyond D 1 PASS (logger audit done); Beyond E 4 PASS / 2 PARTIAL / 16 N/A of 22 ADRs; Beyond F 4 PASS / 1 accepted-FAIL of 5; Beyond G 3 PASS / 1 PARTIAL / 1 N/A of 5; Beyond H 2 PASS / 0 PARTIAL of 2
 **Stale rows:** 0 (sum of Stale columns across all dashboards). When this becomes ≥1, schedule re-verification of the affected rows.
 **Next review due:** when all sweeps land OR +90 days from last full sweep, whichever first
 **Freshness rule:** any row is `STALE` if `Verified` date > 90 days old OR older than the current `manifest.json` minor version (`0.1.x`).
@@ -35,10 +35,10 @@ Verdict is `MET` only when every rule in the tier is `PASS` or `N/A`.
 
 | Tier | Pass | Fail | Partial | N/A | Stale | Unverified | Total | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
-| Bronze   | 14 | 1 | 1 | 2 | 0 | 0 | 18 | NOT YET — `brands` FAIL is *accepted* (won't fix); 1 PARTIAL remaining (BL-020 common-modules) |
+| Bronze   | 15 | 1 | 0 | 2 | 0 | 0 | 18 | EFFECTIVE PASS — `brands` FAIL accepted (won't fix); all other rules PASS |
 | Silver   | 4 | 3 | 2 | 1 | 0 | 0 | 10 | NOT YET (3 FAIL, 2 PARTIAL) |
 | Gold     | 4 | 10 | 4 | 3 | 0 | 0 | 21 | NOT YET (10 FAIL, 4 PARTIAL) |
-| Platinum | 2 |  1 | 0 | 0 | 0 | 0 |  3 | NOT YET (1 FAIL — inject-websession BL-024) |
+| Platinum | 3 |  0 | 0 | 0 | 0 | 0 |  3 | MET |
 
 Beyond-scale dashboard:
 
@@ -64,7 +64,7 @@ Rule URL pattern: `https://developers.home-assistant.io/docs/core/integration-qu
 | action-setup | N/A | No service actions registered. `__init__.py:77` only registers static paths and Lovelace resources; no `hass.services.async_register` anywhere in `custom_components/comelit_man/` (grep confirmed). Integration exposes only entities. | 2026-05-06 | — |
 | appropriate-polling | PASS | `iot_class: local_push` in `manifest.json:9`. `coordinator.py:32` `UPDATE_INTERVAL = timedelta(seconds=30)` drives `_async_update_data` (`coordinator.py:585`) which only health-checks the connection — actual events arrive via `VipEventListener` on CTPP. 30 s for a connectivity check is reasonable for a local push integration. | 2026-05-06 | — |
 | brands | FAIL — accepted | Rule requires brand assets registered in `home-assistant/brands` repo. Verified absent (HTTP 404 on icon.png at master). **User decision 2026-05-06: upstream PR is out of scope; local `custom_components/comelit_man/brand/icon.png` is acceptable for this integration.** Bronze `brands` will remain FAIL — accept it; do not re-open. | 2026-05-06 | BL-014 (won't fix — upstream) |
-| common-modules | PARTIAL | `coordinator.py` exists ✓. No shared `entity.py` base class — each entity file (`button.py:45,107,147`, `camera.py:47,83`, `event.py:31`) re-implements `device_info`/`_attr_has_entity_name` boilerplate. Rule wants common patterns extracted. | 2026-05-06 | BL-020 |
+| common-modules | PASS | `entity.py` created (BL-020, 2026-05-20): `ComelitEntity(CoordinatorEntity[ComelitLocalCoordinator])` provides `_attr_has_entity_name = True` and `device_info` property. All entity files import and use it: `button.py:46,98,127`, `camera.py:86`, `event.py:32`. No per-file boilerplate duplication remains. | 2026-05-20 | BL-020 |
 | config-flow | PASS | `manifest.json:5` `"config_flow": true`. `config_flow.py:37` `ComelitLocalConfigFlow` with `async_step_user` (line 49). Translations present in `strings.json:22-54` and `translations/en.json`. Options flow in `config_flow.py:107`. | 2026-05-06 | — |
 | config-flow-test-coverage | PASS | `tests/test_ha_component.py` fully repaired 2026-05-20: stale imports fixed, constructor signature updated, patch paths corrected, `hass.data`→`entry.runtime_data` assertions updated, voluptuous stub added to conftest. File added to CI test list (`validate.yml`). 24/24 tests pass. | 2026-05-20 | — |
 | dependency-transparency | PASS | `manifest.json:10` declares `"requirements": ["aiohttp>=3.9,<4", "av>=12.0.0,<13"]`. Both are pinned with lower and upper bounds (upper bounds added 2026-05-20 via BL-006). | 2026-05-20 | — |
@@ -126,7 +126,7 @@ Rule URL pattern: `https://developers.home-assistant.io/docs/core/integration-qu
 | Rule | Status | Evidence (path:line / SHA) | Verified | Action (BL-NNN) |
 |---|---|---|---|---|
 | async-dependency | PASS | `aiohttp` is async-native ✓. `av` (PyAV) is synchronous but correctly offloaded: `rtp_receiver.py:470,533` uses `loop.run_in_executor(None, ...)` for both codec init and frame decode, so the event loop is never blocked by FFmpeg calls. All internal modules are async (`client.py`, `auth.py`, `coordinator.py`, `vip_listener.py`, etc.). | 2026-05-06 | — |
-| inject-websession | FAIL | `token.py:37` creates its own session: `async with aiohttp.ClientSession(timeout=timeout) as session:`. Should use HA's `homeassistant.helpers.aiohttp_client.async_get_clientsession(hass)` instead. `extract_token` is called from `config_flow.py:67` where `self.hass` is available, so plumbing is straightforward. | 2026-05-06 | BL-024 |
+| inject-websession | PASS | `token.py:17` imports `async_get_clientsession`; `token.py:42` uses `session = async_get_clientsession(hass)` — HA's shared session, not a standalone `ClientSession`. `hass` plumbed from `config_flow.py`. BL-024 Done 2026-05-20. | 2026-05-20 | BL-024 |
 | strict-typing | PASS | `pyproject.toml` created with `[tool.mypy] strict = true`; `custom_components/comelit_man/py.typed` marker added; `validate.yml` `typecheck` job runs `mypy custom_components/comelit_man/` on every push+PR. All three requirements for platinum:strict-typing met (2026-05-20, BL-006/BL-010). | 2026-05-20 | — |
 
 ---

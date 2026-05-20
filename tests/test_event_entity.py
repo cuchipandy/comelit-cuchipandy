@@ -107,6 +107,27 @@ class TestOnPush:
 # ---------------------------------------------------------------------------
 
 
+class TestDoorbellEventInit:
+    def test_init_sets_unique_id(self):
+        coordinator = MagicMock()
+        entity = ComelitDoorbellEvent(coordinator, "entry_abc")
+        assert entity._attr_unique_id == "entry_abc_doorbell"
+        assert entity._entry_id == "entry_abc"
+        assert entity.coordinator is coordinator
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_adds_entity(self):
+        from custom_components.comelit_man.event import async_setup_entry
+        hass = MagicMock()
+        entry = MagicMock()
+        entry.runtime_data = MagicMock()
+        entry.entry_id = "entry_xyz"
+        added: list = []
+        await async_setup_entry(hass, entry, lambda ents: added.extend(ents))
+        assert len(added) == 1
+        assert isinstance(added[0], ComelitDoorbellEvent)
+
+
 class TestAsyncAddedToHass:
     @pytest.mark.asyncio
     async def test_registers_callback_with_coordinator(self):

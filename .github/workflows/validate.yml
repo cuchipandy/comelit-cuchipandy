@@ -81,7 +81,10 @@ jobs:
             tests/test_camera_utils.py \
             tests/test_config_reader.py \
             tests/test_models_exceptions.py \
+            tests/test_diagnostics_repairs.py \
+            tests/test_config_flow_extra.py \
+            tests/test_channels.py \
             --cov=custom_components/comelit_man \
             --cov-report=term-missing \
-            --cov-fail-under=71 \
+            --cov-fail-under=79 \
             -v

@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.comelit_man.button import (
     ComelitDoorButton,
+    ComelitStartVideoButton,
     ComelitStopVideoButton,
 )
 from custom_components.comelit_man.models import Door
@@ -173,3 +174,110 @@ class TestComelitDoorButton:
             await btn._stop_video_after_delay(10)
 
         btn.coordinator.async_stop_video.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Constructor coverage (via real __init__, not __new__)
+# ---------------------------------------------------------------------------
+
+
+class TestButtonConstructors:
+    def test_door_button_init(self):
+        coordinator = MagicMock()
+        door = Door(id=0, index=3, name="Gate", apt_address="SB100001", output_index=0)
+        btn = ComelitDoorButton(coordinator, door, "entry_abc")
+        assert btn._attr_unique_id == "entry_abc_door_3"
+        assert btn._door is door
+        assert btn._entry_id == "entry_abc"
+        assert btn._attr_name == "Gate"
+
+    def test_start_video_button_init(self):
+        coordinator = MagicMock()
+        btn = ComelitStartVideoButton(coordinator, "entry_abc")
+        assert btn._attr_unique_id == "entry_abc_video_start"
+        assert btn._entry_id == "entry_abc"
+
+    def test_stop_video_button_init(self):
+        coordinator = MagicMock()
+        btn = ComelitStopVideoButton(coordinator, "entry_abc")
+        assert btn._attr_unique_id == "entry_abc_video_stop"
+        assert btn._entry_id == "entry_abc"
+
+
+# ---------------------------------------------------------------------------
+# ComelitStartVideoButton.async_press
+# ---------------------------------------------------------------------------
+
+
+class TestComelitStartVideoButton:
+    @pytest.mark.asyncio
+    async def test_press_no_config_returns_early(self):
+        coordinator = MagicMock()
+        coordinator.device_config = None
+        btn = ComelitStartVideoButton(coordinator, "entry_abc")
+        await btn.async_press()
+        coordinator.async_start_video.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_press_starts_video(self):
+        coordinator = MagicMock()
+        coordinator.device_config = MagicMock()
+        coordinator.async_start_video = AsyncMock()
+        btn = ComelitStartVideoButton(coordinator, "entry_abc")
+        await btn.async_press()
+        coordinator.async_start_video.assert_awaited_once_with(by_user=True)
+
+    @pytest.mark.asyncio
+    async def test_press_does_not_raise_on_exception(self):
+        coordinator = MagicMock()
+        coordinator.device_config = MagicMock()
+        coordinator.async_start_video = AsyncMock(side_effect=RuntimeError("fail"))
+        btn = ComelitStartVideoButton(coordinator, "entry_abc")
+        await btn.async_press()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# async_setup_entry
+# ---------------------------------------------------------------------------
+
+
+class TestButtonSetupEntry:
+    @pytest.mark.asyncio
+    async def test_setup_entry_creates_entities_for_doors(self):
+        from custom_components.comelit_man.button import async_setup_entry
+        door = Door(id=0, index=0, name="Main", apt_address="SB100001", output_index=0)
+        coordinator = MagicMock()
+        coordinator.device_config = MagicMock(doors=[door])
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.entry_id = "entry_abc"
+        added: list = []
+        await async_setup_entry(MagicMock(), entry, lambda ents: added.extend(ents))
+        # 1 door button + start video + stop video = 3
+        assert len(added) == 3
+        assert isinstance(added[0], ComelitDoorButton)
+        assert isinstance(added[1], ComelitStartVideoButton)
+        assert isinstance(added[2], ComelitStopVideoButton)
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_no_config_adds_nothing(self):
+        from custom_components.comelit_man.button import async_setup_entry
+        coordinator = MagicMock()
+        coordinator.device_config = None
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        added: list = []
+        await async_setup_entry(MagicMock(), entry, lambda ents: added.extend(ents))
+        assert len(added) == 0
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_no_doors_adds_nothing(self):
+        from custom_components.comelit_man.button import async_setup_entry
+        coordinator = MagicMock()
+        coordinator.device_config = MagicMock(doors=[])
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.entry_id = "entry_abc"
+        added: list = []
+        await async_setup_entry(MagicMock(), entry, lambda ents: added.extend(ents))
+        assert len(added) == 0

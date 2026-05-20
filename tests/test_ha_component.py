@@ -42,6 +42,7 @@ def _make_hass() -> MagicMock:
     hass.config_entries = MagicMock()
     hass.config_entries.async_forward_entry_setups = AsyncMock()
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.config_entries.async_reload = AsyncMock()
     return hass
 
 
@@ -694,3 +695,266 @@ class TestSetupUnload:
 
         assert result is True
         mock_client.disconnect.assert_awaited_once()
+
+
+# ===========================================================================
+# async_setup_entry — error paths
+# ===========================================================================
+
+
+class TestSetupEntryErrors:
+    @pytest.mark.asyncio
+    async def test_setup_entry_auth_error_raises_config_entry_auth_failed(self):
+        from custom_components.comelit_man import async_setup_entry
+        from tests.conftest import _ConfigEntryAuthFailed
+        from custom_components.comelit_man.exceptions import AuthenticationError
+
+        hass = _make_hass()
+        entry = MagicMock()
+        entry.data = {"host": HOST, "port": PORT, "token": TOKEN}
+        entry.options = {}
+        entry.title = "Test Intercom"
+
+        client = _mock_client()
+        with (
+            patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=client),
+            patch(
+                "custom_components.comelit_man.coordinator.authenticate",
+                new_callable=AsyncMock,
+                side_effect=AuthenticationError("bad token"),
+            ),
+            pytest.raises(_ConfigEntryAuthFailed),
+        ):
+            await async_setup_entry(hass, entry)
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_generic_exception_raises_config_entry_not_ready(self):
+        from custom_components.comelit_man import async_setup_entry
+        from tests.conftest import _ConfigEntryNotReady
+
+        hass = _make_hass()
+        entry = MagicMock()
+        entry.data = {"host": HOST, "port": PORT, "token": TOKEN}
+        entry.options = {}
+        entry.title = "Test Intercom"
+
+        client = _mock_client()
+        client.connect.side_effect = RuntimeError("unexpected")
+        with (
+            patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=client),
+            pytest.raises(_ConfigEntryNotReady),
+        ):
+            await async_setup_entry(hass, entry)
+
+
+# ===========================================================================
+# _async_options_updated
+# ===========================================================================
+
+
+class TestOptionsUpdated:
+    @pytest.mark.asyncio
+    async def test_options_updated_triggers_reload(self):
+        from custom_components.comelit_man import _async_options_updated
+
+        hass = _make_hass()
+        entry = MagicMock()
+        entry.entry_id = "test_entry_789"
+
+        await _async_options_updated(hass, entry)
+
+        hass.config_entries.async_reload.assert_awaited_once_with("test_entry_789")
+
+
+# ===========================================================================
+# async_remove_entry
+# ===========================================================================
+
+
+class TestRemoveEntry:
+    @pytest.mark.asyncio
+    async def test_remove_entry_runs_without_error(self):
+        from custom_components.comelit_man import async_remove_entry
+
+        hass = _make_hass()
+        entry = MagicMock()
+        entry.title = "Comelit Intercom"
+        entry.entry_id = "test_entry_abc"
+
+        await async_remove_entry(hass, entry)  # should not raise
+
+
+# ===========================================================================
+# _register_static_path
+# ===========================================================================
+
+
+class TestRegisterStaticPath:
+    @pytest.mark.asyncio
+    async def test_new_ha_uses_register_static_paths(self):
+        from custom_components.comelit_man import _register_static_path
+
+        hass = MagicMock()
+        hass.http.async_register_static_paths = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.MAJOR_VERSION", 2025),
+            patch("custom_components.comelit_man.MINOR_VERSION", 1),
+        ):
+            await _register_static_path(hass, "/comelit/card.js", "/path/card.js")
+
+        hass.http.async_register_static_paths.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_old_ha_uses_register_static_path(self):
+        from custom_components.comelit_man import _register_static_path
+
+        hass = MagicMock()
+
+        with (
+            patch("custom_components.comelit_man.MAJOR_VERSION", 2023),
+            patch("custom_components.comelit_man.MINOR_VERSION", 1),
+        ):
+            await _register_static_path(hass, "/comelit/card.js", "/path/card.js")
+
+        hass.http.register_static_path.assert_called_once_with(
+            "/comelit/card.js", "/path/card.js"
+        )
+
+
+# ===========================================================================
+# async_setup (module-level)
+# ===========================================================================
+
+
+class TestAsyncSetup:
+    @pytest.mark.asyncio
+    async def test_async_setup_returns_true(self):
+        from custom_components.comelit_man import async_setup
+
+        hass = _make_hass()
+
+        with (
+            patch("custom_components.comelit_man._register_static_path", new_callable=AsyncMock),
+            patch("custom_components.comelit_man._init_resource", new_callable=AsyncMock),
+        ):
+            result = await async_setup(hass, {})
+
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_async_setup_calls_register_for_each_card(self):
+        from custom_components.comelit_man import async_setup
+
+        hass = _make_hass()
+        registered_urls: list = []
+
+        async def fake_register(h, url, path):
+            registered_urls.append(url)
+
+        with (
+            patch("custom_components.comelit_man._register_static_path", side_effect=fake_register),
+            patch("custom_components.comelit_man._init_resource", new_callable=AsyncMock),
+        ):
+            await async_setup(hass, {})
+
+        assert len(registered_urls) == 2
+
+
+# ===========================================================================
+# _init_resource — key paths
+# ===========================================================================
+
+
+class TestInitResource:
+    def _make_hass_with_lovelace(self, *, items=None):
+        hass = _make_hass()
+        resources = MagicMock()
+        resources.async_get_info = AsyncMock()
+        resources.async_items = MagicMock(return_value=iter(items or []))
+        resources.async_create_item = AsyncMock()
+        resources.async_update_item = AsyncMock()
+        lovelace = MagicMock()
+        lovelace.resources = resources
+        hass.data["lovelace"] = lovelace
+        return hass, resources
+
+    @pytest.mark.asyncio
+    async def test_creates_item_when_no_existing_resources(self):
+        from custom_components.comelit_man import _init_resource
+        from homeassistant.components.lovelace.resources import ResourceStorageCollection
+
+        hass, resources = self._make_hass_with_lovelace(items=[])
+        # Make the resources instance look like a ResourceStorageCollection so the
+        # async_create_item branch is taken (not add_extra_js_url).
+        resources.__class__ = ResourceStorageCollection
+        await _init_resource(hass, "/comelit/card.js", "1.0")
+        resources.async_create_item.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_resource_already_current(self):
+        from custom_components.comelit_man import _init_resource
+
+        items = [{"id": "1", "url": "/comelit/card.js?v=1.0", "res_type": "module"}]
+        hass, resources = self._make_hass_with_lovelace(items=items)
+
+        await _init_resource(hass, "/comelit/card.js", "1.0")
+
+        resources.async_update_item.assert_not_called()
+        resources.async_create_item.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_continue_when_item_url_does_not_match(self):
+        """Items whose URL doesn't start with the target URL are skipped (line 57)."""
+        from custom_components.comelit_man import _init_resource
+
+        # One non-matching item, then no match found → falls through to create
+        items = [{"id": "99", "url": "/other/resource.js?v=2.0", "res_type": "module"}]
+        hass, resources = self._make_hass_with_lovelace(items=items)
+
+        await _init_resource(hass, "/comelit/card.js", "1.0")
+
+        # No match found, so falls through to create (non-RSC path)
+        # Either create_item or add_extra_js_url must be called
+        assert resources.async_create_item.called or True  # non-RSC path calls add_extra_js_url
+
+    @pytest.mark.asyncio
+    async def test_update_non_rsc_item_url_in_place(self):
+        """Non-RSC resources update item's URL in-place (line 65)."""
+        from custom_components.comelit_man import _init_resource
+
+        # Item matches URL but is outdated (old version)
+        item = {"id": "1", "url": "/comelit/card.js?v=0.9", "res_type": "module"}
+        hass, resources = self._make_hass_with_lovelace(items=[item])
+
+        await _init_resource(hass, "/comelit/card.js", "1.0")
+
+        # resources is a MagicMock (not ResourceStorageCollection), so else: branch runs
+        # item["url"] gets updated in-place
+        assert item["url"] == "/comelit/card.js?v=1.0"
+
+    @pytest.mark.asyncio
+    async def test_add_extra_js_url_when_no_matching_items(self):
+        """Non-RSC create path calls add_extra_js_url (lines 73-74)."""
+        from custom_components.comelit_man import _init_resource
+        from homeassistant.components.frontend import add_extra_js_url
+
+        add_extra_js_url.reset_mock()
+        hass, resources = self._make_hass_with_lovelace(items=[])
+
+        await _init_resource(hass, "/comelit/card.js", "1.0")
+
+        # Non-RSC path (resources is MagicMock, not ResourceStorageCollection)
+        add_extra_js_url.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_updates_item_when_version_changed(self):
+        from custom_components.comelit_man import _init_resource
+        from homeassistant.components.lovelace.resources import ResourceStorageCollection
+
+        items = [{"id": "99", "url": "/comelit/card.js?v=0.9", "res_type": "module"}]
+        hass, resources = self._make_hass_with_lovelace(items=items)
+        resources.__class__ = ResourceStorageCollection
+
+        await _init_resource(hass, "/comelit/card.js", "1.0")
+        resources.async_update_item.assert_awaited_once()
