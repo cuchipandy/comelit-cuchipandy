@@ -63,7 +63,9 @@ Platforms: `BUTTON, CAMERA, EVENT` | Min HA: `2026.1.0` | Repo: `https://github.
 ```bash
 # First time — create venv
 python -m venv .venv
-.venv\Scripts\pip install pytest pytest-asyncio aiohttp av
+.venv\Scripts\pip install pytest pytest-asyncio aiohttp av pytest-cov
+# Optional: install real HA types (CI always does this via pytest-homeassistant-custom-component)
+# .venv\Scripts\pip install pytest-homeassistant-custom-component
 
 # All tests
 .venv\Scripts\pytest tests/ -v
@@ -232,7 +234,6 @@ Three code paths selected automatically by `coordinator.async_open_door`:
 - **Codec: PCMA G.711 A-law, PT=8, 20ms frames (160 bytes/frame)**
 - Answer sequence: `encode_answer_video_reconfig` → `encode_answer_peer` → `encode_answer_config_ack`
 - Audio arrives on same UDP port as video, distinguished by RTP payload type (PT=8)
-- See `docs/audio_protocol_findings_2026_03_22.md` for protocol analysis
 
 ---
 

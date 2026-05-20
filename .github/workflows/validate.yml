@@ -57,7 +57,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install pytest pytest-asyncio aiohttp av
+        run: pip install pytest pytest-asyncio aiohttp av pytest-homeassistant-custom-component pytest-cov
       - name: Run unit tests
         run: |
           PYTHONPATH=. pytest \
@@ -77,4 +77,11 @@ jobs:
             tests/test_button.py \
             tests/test_push.py \
             tests/test_ha_component.py \
+            tests/test_auth.py \
+            tests/test_camera_utils.py \
+            tests/test_config_reader.py \
+            tests/test_models_exceptions.py \
+            --cov=custom_components/comelit_man \
+            --cov-report=term-missing \
+            --cov-fail-under=71 \
             -v
