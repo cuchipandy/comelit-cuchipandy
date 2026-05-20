@@ -1,9 +1,9 @@
 # Comelit Man — Quality Audit
 
-**Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20
+**Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20; Bundle A+B applied 2026-05-20
 **Version at audit:** 0.1.4.3
 **Tier claim (CLAUDE.md):** Bronze (initial)
-**Tier verdict (audited):** Bronze PASS (all rules satisfied); Silver NOT YET (1 FAIL remaining — reauthentication-flow BL-004; log-when-unavailable BL-022 + test-coverage BL-023 also needed); Gold NOT YET (7 FAIL remaining — diagnostics, repairs, reconfigure-flow, exception-translations, docs×4, discovery); Platinum NOT YET (2 FAIL); Beyond A-D 10/13; Beyond E 4 PASS / 2 PARTIAL / 16 N/A of 22 ADRs; Beyond F 4 PASS / 1 accepted-FAIL of 5; Beyond G 3 PASS / 1 PARTIAL / 1 N/A of 5; Beyond H 1 PASS / 1 PARTIAL of 2 (read-only)
+**Tier verdict (audited):** Bronze PASS; Silver NOT YET (1 FAIL remaining — test-coverage BL-023); Gold NOT YET (5 FAIL remaining — diagnostics, repairs, exception-translations, docs×4, discovery); Platinum NOT YET (1 FAIL remaining — strict-typing BL-010); Beyond A-D 13/13 PASS; Beyond E 4 PASS / 2 PARTIAL / 16 N/A of 22 ADRs; Beyond F 4 PASS / 1 accepted-FAIL of 5; Beyond G 3 PASS / 1 PARTIAL / 1 N/A of 5; Beyond H 1 PASS / 1 PARTIAL of 2 (read-only)
 **Stale rows:** 0 (sum of Stale columns across all dashboards). When this becomes ≥1, schedule re-verification of the affected rows.
 **Next review due:** when all sweeps land OR +90 days from last full sweep, whichever first
 **Freshness rule:** any row is `STALE` if `Verified` date > 90 days old OR older than the current `manifest.json` minor version (`0.1.x`).
