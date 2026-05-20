@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_TOKEN
+
+if TYPE_CHECKING:
+    from homeassistant.components.dhcp import DhcpServiceInfo
 
 from .auth import authenticate
 from .client import IconaBridgeClient
@@ -100,6 +103,75 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+        )
+
+    async def async_step_dhcp(
+        self, discovery_info: DhcpServiceInfo
+    ) -> config_entries.ConfigFlowResult:
+        """Handle DHCP discovery of a Comelit device."""
+        host = discovery_info.ip
+        mac = discovery_info.macaddress
+        await self.async_set_unique_id(mac)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+        self.context["title_placeholders"] = {"host": host}
+        self._discovered_host = host
+        return await self.async_step_dhcp_confirm()
+
+    async def async_step_dhcp_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm DHCP-discovered device and collect credentials."""
+        errors: dict[str, str] = {}
+        host = self._discovered_host
+        port = DEFAULT_PORT
+        http_port = DEFAULT_HTTP_PORT
+
+        if user_input is not None:
+            token = user_input.get(CONF_TOKEN, "").strip()
+            password = user_input.get(CONF_PASSWORD, "comelit")
+
+            if not token:
+                try:
+                    token = await extract_token(host, password, http_port, self.hass)
+                except Exception as err:
+                    _LOGGER.exception("Token extraction failed: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    errors["base"] = "token_extraction_failed"
+
+            if not errors:
+                client = IconaBridgeClient(host, port)
+                try:
+                    await asyncio.wait_for(client.connect(), timeout=10)
+                    await asyncio.wait_for(authenticate(client, token), timeout=10)
+                except AuthenticationError:
+                    _LOGGER.warning("Authentication failed for discovered device %s", host)
+                    errors["base"] = "invalid_auth"
+                except (TimeoutError, ComelitConnectionError, OSError) as err:
+                    _LOGGER.warning("Connection failed for discovered device %s: %s", host, err)
+                    errors["base"] = "cannot_connect"
+                finally:
+                    await client.disconnect()
+
+            if not errors:
+                return self.async_create_entry(
+                    title=f"Comelit {host}",
+                    data={
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_TOKEN: token,
+                        CONF_HTTP_PORT: http_port,
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="dhcp_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(CONF_TOKEN, default=""): str,
+                    vol.Optional(CONF_PASSWORD, default="comelit"): str,
+                }
+            ),
+            description_placeholders={"host": host},
             errors=errors,
         )
 

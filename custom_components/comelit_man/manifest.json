@@ -4,6 +4,10 @@
   "codeowners": ["@mnestrud"],
   "config_flow": true,
   "dependencies": ["http", "lovelace", "stream"],
+  "dhcp": [
+    {"hostname": "icona*"},
+    {"hostname": "*comelit*"}
+  ],
   "documentation": "https://github.com/mnestrud/comelit-man",
   "homeassistant": "2026.1.0",
   "integration_type": "device",

@@ -13,6 +13,7 @@ from typing import TypeAlias
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .auth import authenticate
@@ -243,6 +244,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
 
         self._start_keepalive()
         self._connection_lost = False
+        ir.async_delete_issue(self.hass, DOMAIN, "auth_failed")
         _LOGGER.info("Comelit reconnected successfully")
 
     async def async_shutdown(self) -> None:
@@ -615,6 +617,16 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         try:
             await self._reconnect()
         except AuthenticationError as err:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                "auth_failed",
+                is_fixable=True,
+                is_persistent=True,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key="auth_failed",
+                translation_placeholders={"name": self.device_name},
+            )
             raise ConfigEntryAuthFailed("Authentication failed — update the token") from err
         except Exception as err:
             raise UpdateFailed(f"Reconnect failed: {err}") from err

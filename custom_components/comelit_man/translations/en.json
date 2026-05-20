@@ -57,6 +57,18 @@
           "password": "Only needed if token is not provided"
         }
       },
+      "dhcp_confirm": {
+        "title": "Comelit device found",
+        "description": "A Comelit device was discovered at {host}. Enter credentials to complete setup.",
+        "data": {
+          "token": "Authentication token (32-char hex)",
+          "password": "Device password (to auto-extract token)"
+        },
+        "data_description": {
+          "token": "Leave empty to auto-extract using the device password",
+          "password": "Only needed if token is not provided"
+        }
+      },
       "reauth_confirm": {
         "title": "Reauthenticate Comelit Man",
         "description": "Authentication failed. Enter a new token or password to reconnect.",
@@ -96,6 +108,31 @@
     "abort": {
       "already_configured": "Device is already configured",
       "another_device": "This IP address belongs to a different device that is already configured."
+    }
+  },
+  "exceptions": {
+    "door_open_failed": {
+      "message": "Failed to open door '{door}'"
+    },
+    "video_call_failed": {
+      "message": "Failed to start video call"
+    },
+    "video_rtpc_not_received": {
+      "message": "Video channel not established — device did not respond"
+    }
+  },
+  "issues": {
+    "auth_failed": {
+      "title": "Authentication failed",
+      "description": "Comelit Man cannot connect to {name} — the token is invalid or expired. Re-authenticate to reconnect.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Re-authenticate",
+            "description": "Go to **Settings → Integrations → Comelit Man** and choose **Re-authenticate**."
+          }
+        }
+      }
     }
   }
 }

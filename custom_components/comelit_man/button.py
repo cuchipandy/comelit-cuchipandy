@@ -116,10 +116,10 @@ class ComelitStartVideoButton(ComelitEntity, ButtonEntity):
         if not self.coordinator.device_config:
             return
         t0 = time.monotonic()
-        _LOGGER.info("Starting intercom video")
+        _LOGGER.debug("Starting intercom video (user action)")
         try:
             await self.coordinator.async_start_video(by_user=True)
-            _LOGGER.info("Video ready in %.1fs", time.monotonic() - t0)
+            _LOGGER.debug("Video ready in %.1fs", time.monotonic() - t0)
         except Exception:
             _LOGGER.exception("Failed to start intercom video after %.1fs", time.monotonic() - t0)
 

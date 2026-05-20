@@ -9,12 +9,32 @@ from unittest.mock import MagicMock
 # ---------------------------------------------------------------------------
 
 
+class _HomeAssistantError(Exception):
+    """Stand-in for homeassistant.exceptions.HomeAssistantError."""
+
+    def __init__(
+        self,
+        *args: object,
+        translation_domain: str | None = None,
+        translation_key: str | None = None,
+        translation_placeholders: dict | None = None,
+    ) -> None:
+        super().__init__(*args)
+        self.translation_domain = translation_domain
+        self.translation_key = translation_key
+        self.translation_placeholders = translation_placeholders or {}
+
+
 class _UpdateFailed(Exception):
     """Stand-in for homeassistant.helpers.update_coordinator.UpdateFailed."""
 
 
-class _ConfigEntryNotReady(Exception):
+class _ConfigEntryNotReady(_HomeAssistantError):
     """Stand-in for homeassistant.exceptions.ConfigEntryNotReady."""
+
+
+class _ConfigEntryAuthFailed(_HomeAssistantError):
+    """Stand-in for homeassistant.exceptions.ConfigEntryAuthFailed."""
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +113,9 @@ class _ConfigFlow:
 
 # Build mock modules, injecting real classes where needed.
 _ha_exceptions = MagicMock()
+_ha_exceptions.HomeAssistantError = _HomeAssistantError
 _ha_exceptions.ConfigEntryNotReady = _ConfigEntryNotReady
+_ha_exceptions.ConfigEntryAuthFailed = _ConfigEntryAuthFailed
 
 _ha_update_coordinator = MagicMock()
 _ha_update_coordinator.DataUpdateCoordinator = _DataUpdateCoordinator

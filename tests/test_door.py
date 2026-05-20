@@ -120,8 +120,9 @@ class TestOpenDoorFastPath:
         config = _make_config()
         door = _make_door()
 
-        with pytest.raises(DoorOpenError, match="Failed to open door"):
+        with pytest.raises(DoorOpenError) as exc_info:
             await open_door(HOST, PORT, TOKEN, client, config, door)
+        assert exc_info.value.translation_key == "door_open_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -265,5 +266,6 @@ class TestOpenDoorStandalonePath:
             mock_inner = _make_client()
             mock_inner.connect = AsyncMock(side_effect=OSError("cannot connect"))
             mock_cls.return_value = mock_inner
-            with pytest.raises(DoorOpenError, match="Failed to open door"):
+            with pytest.raises(DoorOpenError) as exc_info:
                 await open_door(HOST, PORT, TOKEN, client, config, door)
+            assert exc_info.value.translation_key == "door_open_failed"
