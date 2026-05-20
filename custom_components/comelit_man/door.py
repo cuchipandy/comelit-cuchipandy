@@ -43,6 +43,7 @@ async def open_door(
     config: DeviceConfig,
     door: Door,
 ) -> None:
+    opened_channel = False
     try:
         ctpp = client.get_channel("CTPP")
         opened_channel = ctpp is None

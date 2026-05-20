@@ -32,6 +32,19 @@ jobs:
       - run: pip install ruff
       - run: ruff check custom_components/
 
+  typecheck:
+    name: Mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: pip install mypy aiohttp av
+      - name: Run mypy
+        run: mypy custom_components/comelit_man/
+
   test:
     name: Pytest (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
