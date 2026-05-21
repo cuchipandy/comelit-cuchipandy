@@ -444,7 +444,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         """Called by VideoCallSession when the device sends CALL_END."""
         if self._video_stopped_by_user:
             return
-        _LOGGER.info("CALL_END received — scheduling session restart")
+        _LOGGER.debug("CALL_END received — scheduling session restart")
         self.config_entry.async_create_background_task(
             self.hass, self._auto_restart_video(), "comelit-auto-restart-video"
         )
@@ -535,7 +535,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             )
             await vip.start()
             self._vip_listener = vip
-            _LOGGER.info("VIP event listener restarted")
+            _LOGGER.debug("VIP event listener restarted")
         except Exception:
             _LOGGER.warning("Failed to restart VIP listener", exc_info=True)
 
