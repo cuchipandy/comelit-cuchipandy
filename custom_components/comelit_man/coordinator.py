@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 import contextlib
-from datetime import timedelta
 import logging
 import time
-from typing import TypeAlias
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -603,9 +602,8 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
 
     async def _async_update_data(self) -> DeviceConfig:
         """Health-check the connection; reconnect if needed."""
-        if self._client and self._client.connected:
-            if self._config:
-                return self._config
+        if self._client and self._client.connected and self._config:
+            return self._config
 
         # Connection lost or no config — attempt reconnect.
         # One-shot warning: _on_client_disconnect may have already fired it;
@@ -634,4 +632,4 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         return self._config  # type: ignore[return-value]
 
 
-ComelitLocalConfigEntry: TypeAlias = ConfigEntry[ComelitLocalCoordinator]
+type ComelitLocalConfigEntry = ConfigEntry[ComelitLocalCoordinator]

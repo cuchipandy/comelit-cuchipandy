@@ -626,10 +626,8 @@ class RtpReceiver:
         has ever been decoded) so callers always have something to show.
         """
         self._frame_event.clear()
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._frame_event.wait(), timeout=timeout)
-        except TimeoutError:
-            pass
         return self._latest_frame
 
     @property

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import IntEnum
 import json
 import struct
+from dataclasses import dataclass
+from enum import IntEnum
 
 from .const import VIDEO_FPS, VIDEO_HEIGHT, VIDEO_WIDTH
 

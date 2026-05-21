@@ -13,6 +13,8 @@ from .const import DEFAULT_PORT, DOMAIN
 from .coordinator import ComelitLocalConfigEntry, ComelitLocalCoordinator
 from .exceptions import (
     AuthenticationError,
+)
+from .exceptions import (
     ConnectionComelitError as ComelitConnectionError,
 )
 

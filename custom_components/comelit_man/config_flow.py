@@ -7,7 +7,6 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_TOKEN
 
@@ -19,6 +18,8 @@ from .client import IconaBridgeClient
 from .const import CONF_ENABLE_NOTIFICATIONS, CONF_HTTP_PORT, DEFAULT_HTTP_PORT, DEFAULT_PORT, DOMAIN
 from .exceptions import (
     AuthenticationError,
+)
+from .exceptions import (
     ConnectionComelitError as ComelitConnectionError,
 )
 from .token import extract_token

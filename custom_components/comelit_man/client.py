@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
 import contextlib
 import logging
-import random
 import socket
 import struct
+from collections.abc import Callable
 
 from .channels import Channel, ChannelType
 from .exceptions import ConnectionComelitError, ProtocolError
@@ -57,7 +56,6 @@ class IconaBridgeClient:
 
     async def connect(self) -> None:
         """Open TCP connection to the device."""
-        import socket
 
         try:
             self._reader, self._writer = await asyncio.wait_for(
@@ -487,7 +485,7 @@ class IconaBridgeClient:
             channel.name = new_name
             self._channels[new_name] = channel
 
-    def get_channel(self, name: str) -> "Channel | None":
+    def get_channel(self, name: str) -> Channel | None:
         """Return an open channel by name, or None if not open."""
         ch = self._channels.get(name)
         return ch if ch is not None and ch.is_open else None

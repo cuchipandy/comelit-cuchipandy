@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
 import logging
 import struct
 import time
+from collections.abc import Callable
 
 from .channels import Channel, ChannelType
 from .client import IconaBridgeClient
@@ -123,7 +123,7 @@ class VideoCallSession:
     async def _run_codec_exchange(
         self,
         client: IconaBridgeClient,
-        ctpp: "Channel",
+        ctpp: Channel,
         our_addr: str,
         entrance_addr: str,
         call_counter: int,
@@ -170,7 +170,7 @@ class VideoCallSession:
     async def _ack_device_rtpc_link(
         self,
         client: IconaBridgeClient,
-        ctpp: "Channel",
+        ctpp: Channel,
         our_addr: str,
         entrance_addr: str,
         call_counter: int,
@@ -417,7 +417,7 @@ class VideoCallSession:
                 raise VideoCallError(
                     translation_domain=DOMAIN,
                     translation_key="video_rtpc_not_received",
-                )
+                ) from None
 
             # Read and ACK device's CTPP RTPC link (0x1840/0x000A)
             call_counter = await self._ack_device_rtpc_link(
@@ -584,7 +584,7 @@ class VideoCallSession:
     async def _ctpp_monitor_loop(
         self,
         client: IconaBridgeClient,
-        ctpp: "Channel",
+        ctpp: Channel,
         our_addr: str,
         entrance_addr: str,
         call_counter: int,
@@ -680,7 +680,7 @@ class VideoCallSession:
     async def _inline_reestablish(
         self,
         client: IconaBridgeClient,
-        ctpp: "Channel",
+        ctpp: Channel,
         our_addr: str,
         entrance_addr: str,
         rtpc1_server_id: int,
@@ -785,7 +785,7 @@ class VideoCallSession:
     async def _run_answer_sequence(
         self,
         client: IconaBridgeClient,
-        ctpp: "Channel",
+        ctpp: Channel,
         our_addr: str,
         entrance_addr: str,
         apt_addr: str,
@@ -804,7 +804,7 @@ class VideoCallSession:
     async def _send_answer_sequence(
         self,
         client: IconaBridgeClient,
-        ctpp: "Channel",
+        ctpp: Channel,
         our_addr: str,
         entrance_addr: str,
         apt_addr: str,

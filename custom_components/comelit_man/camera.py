@@ -12,10 +12,11 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .camera_utils import get_rtsp_url
-from .const import DOMAIN, MANUFACTURER, MODEL
+from .const import DOMAIN, MANUFACTURER
 from .coordinator import ComelitLocalConfigEntry, ComelitLocalCoordinator
 from .entity import ComelitEntity
-from .models import Camera as CameraModel, PushEvent
+from .models import Camera as CameraModel
+from .models import PushEvent
 from .placeholder import PLACEHOLDER_JPEG
 
 _LOGGER = logging.getLogger(__name__)
