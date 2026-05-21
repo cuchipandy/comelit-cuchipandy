@@ -25,6 +25,7 @@ import logging
 import struct
 import time
 from collections.abc import Callable
+from typing import Any
 
 from .client import IconaBridgeClient
 from .ctpp import _CTR_INCR_BOTH
@@ -54,7 +55,7 @@ ACTION_REGISTRATION_RENEWAL = 0x0010  # Device keepalive — must ACK with 0x180
 MIN_MSG_SIZE = 8
 
 
-def parse_ctpp_message(data: bytes) -> dict | None:
+def parse_ctpp_message(data: bytes) -> dict[str, Any] | None:
     """Parse a binary CTPP message into its components.
 
     Returns a dict with prefix, timestamp, action, addresses, etc.
@@ -67,7 +68,7 @@ def parse_ctpp_message(data: bytes) -> dict | None:
     timestamp = struct.unpack_from("<I", data, 2)[0]
     action = struct.unpack_from(">H", data, 6)[0]
 
-    result: dict = {
+    result: dict[str, Any] = {
         "prefix": prefix,
         "timestamp": timestamp,
         "action": action,
@@ -117,7 +118,7 @@ class VipEventListener:
         # renewal ts — using device_ts causes the device to reject the ACK).
         self._init_ts = init_ts
         self._ack_ts = (init_ts + _CTR_INCR_BOTH) & 0xFFFFFFFF
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._running = False
         # Timestamp of the last fired event per type — used to deduplicate
         # repeated transmissions (device retransmits call init every ~1-2s).
@@ -287,7 +288,7 @@ class VipEventListener:
         if prefix in (PREFIX_CALL_INIT, PREFIX_VIP_EVENT, PREFIX_VIDEO_EVENT):
             self._handle_vip_event(msg)
 
-    async def _send_event_ack(self, msg: dict) -> None:
+    async def _send_event_ack(self, msg: dict[str, Any]) -> None:
         """Send a single ACK (0x1800) for a device-initiated VIP event.
 
         Used for events like door_opened (0x1860/0x0003) where the device
@@ -312,7 +313,7 @@ class VipEventListener:
         except Exception:
             _LOGGER.warning("VIP: failed to send event ACK", exc_info=True)
 
-    async def _send_renewal_ack(self, msg: dict) -> None:
+    async def _send_renewal_ack(self, msg: dict[str, Any]) -> None:
         """Respond to device's periodic 0x1860/0x0010 registration renewal signal.
 
         The device sends this message periodically to verify the client is still
@@ -339,7 +340,7 @@ class VipEventListener:
         except Exception:
             _LOGGER.warning("VIP: failed to send renewal ACK", exc_info=True)
 
-    def _handle_vip_event(self, msg: dict) -> None:
+    def _handle_vip_event(self, msg: dict[str, Any]) -> None:
         """Handle a VIP event that might be a doorbell ring or other call event."""
         prefix = msg["prefix"]
         action = msg["action"]

@@ -8,6 +8,7 @@ import io
 import logging
 import struct
 import time
+from typing import Any
 
 from .protocol import HEADER_SIZE, ICONA_BRIDGE_PORT
 
@@ -37,7 +38,7 @@ class _UdpProtocol(asyncio.DatagramProtocol):
     def __init__(self, receiver: RtpReceiver) -> None:
         self._receiver = receiver
 
-    def connection_made(self, transport) -> None:
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
         _LOGGER.debug("UDP socket connected: %s", transport.get_extra_info("sockname"))
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
@@ -90,7 +91,7 @@ class RtpReceiver:
         # is the authoritative frame PTS.  PyAV's local decode path ignores
         # it (reads only the bytes), but the RTSP server forwards it.
         self._codec_context = None
-        self._decode_task: asyncio.Task | None = None
+        self._decode_task: asyncio.Task[None] | None = None
         self._nal_queue: asyncio.Queue[tuple[int, bytes]] = asyncio.Queue(maxsize=500)
 
         # Optional fanout queues for RTSP server (attached via attach_rtsp_queues).
@@ -114,7 +115,7 @@ class RtpReceiver:
         self._media_packet_count = 0
         self._udp_media_packet_count = 0
         self._tcp_media_packet_count = 0
-        self._keepalive_task: asyncio.Task | None = None
+        self._keepalive_task: asyncio.Task[None] | None = None
 
         # Fires as soon as the first video NAL has been queued — callers can
         # await this to know that video is actually flowing before reporting
@@ -461,7 +462,7 @@ class RtpReceiver:
         """
         loop = asyncio.get_running_loop()
 
-        def _init_codec():
+        def _init_codec() -> tuple[Any, Any]:
             """Import PyAV and create H.264 codec context (runs in thread)."""
             import av  # noqa: PLC0415
             return av, av.CodecContext.create("h264", "r")
@@ -569,7 +570,7 @@ class RtpReceiver:
 
 
     @staticmethod
-    def _frame_to_jpeg(frame) -> bytes | None:
+    def _frame_to_jpeg(frame: Any) -> bytes | None:
         """Convert a PyAV VideoFrame to JPEG bytes via Pillow.
 
         Uses frame.to_image() (Pillow) instead of creating a new ffmpeg

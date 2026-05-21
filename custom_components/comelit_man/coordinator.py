@@ -75,7 +75,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         # VIP listener needs it to derive outgoing ACK timestamps
         # (ack_ts = init_ts + 0x01010000, PCAP-verified).
         self._ctpp_init_ts: int = 0
-        self._keepalive_task: asyncio.Task | None = None
+        self._keepalive_task: asyncio.Task[None] | None = None
         # Tracks whether we were connected on the last health-check so
         # disconnect / reconnect are logged exactly once per transition.
         self._connection_lost: bool = False
@@ -501,6 +501,8 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         while True:
             await asyncio.sleep(KEEPALIVE_INTERVAL)
             if not self._client or not self._client.connected:
+                return
+            if not self._config:
                 return
             try:
                 await asyncio.wait_for(

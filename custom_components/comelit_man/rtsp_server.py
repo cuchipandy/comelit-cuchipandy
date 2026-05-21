@@ -162,7 +162,7 @@ class LocalRtspServer:
         self._last_audio_rtp_ts: int = 0
 
         self._running = False
-        self._feed_tasks: list[asyncio.Task] = []
+        self._feed_tasks: list[asyncio.Task[None]] = []
 
         # Gated by the coordinator: set when a video session is producing
         # RTP, cleared during CTPP handshake and idle.  The PLAY handler

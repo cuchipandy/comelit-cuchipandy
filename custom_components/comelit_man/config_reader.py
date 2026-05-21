@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from .channels import ChannelType, ViperMessageId
 from .client import IconaBridgeClient
@@ -33,7 +34,7 @@ async def get_device_config(client: IconaBridgeClient) -> DeviceConfig:
     return _parse_config(response)
 
 
-def _parse_config(data: dict) -> DeviceConfig:
+def _parse_config(data: dict[str, Any]) -> DeviceConfig:
     """Parse the raw config JSON into a DeviceConfig."""
     config = DeviceConfig(raw=data)
 

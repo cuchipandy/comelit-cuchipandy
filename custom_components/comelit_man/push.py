@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 from .channels import ChannelType, ViperMessageId
 from .client import IconaBridgeClient
@@ -44,7 +45,7 @@ async def register_push(
     response = await client.send_json(channel, msg)
     _LOGGER.debug("Push registration response: %s", response)
 
-    def _on_push(raw_msg: dict) -> None:
+    def _on_push(raw_msg: dict[str, Any]) -> None:
         event = _parse_push_event(raw_msg)
         if event:
             callback(event)
@@ -84,7 +85,7 @@ async def send_push_keepalive(
     _LOGGER.debug("Push keepalive sent")
 
 
-def _parse_push_event(raw: dict) -> PushEvent | None:
+def _parse_push_event(raw: dict[str, Any]) -> PushEvent | None:
     """Parse a raw push notification JSON into a PushEvent.
 
     The exact format varies by firmware version. We look for common patterns

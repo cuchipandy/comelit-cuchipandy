@@ -150,7 +150,7 @@ def _parse_token_from_archive(archive_data: bytes) -> str | None:
                         for token in matches:
                             if token != "00000000000000000000000000000000":
                                 _LOGGER.debug("Extracted token: %s...%s", token[:4], token[-4:])  # nosemgrep: python-logger-credential-disclosure
-                                return token
+                                return str(token)
 
                     raise TokenExtractionError(
                         f"Token pattern not found in users.cfg "

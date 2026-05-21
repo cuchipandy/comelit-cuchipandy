@@ -8,6 +8,7 @@ import logging
 import socket
 import struct
 from collections.abc import Callable
+from typing import Any
 
 from .channels import Channel, ChannelType
 from .exceptions import ConnectionComelitError, ProtocolError
@@ -43,9 +44,9 @@ class IconaBridgeClient:
         self._request_id = 8000 + int(asyncio.get_event_loop().time() * 10) % 1000
         self._sequence = 0
         self._channels: dict[str, Channel] = {}
-        self._receive_task: asyncio.Task | None = None
-        self._callbacks: dict[int, asyncio.Future] = {}
-        self._push_callback: Callable[[dict], None] | None = None
+        self._receive_task: asyncio.Task[None] | None = None
+        self._callbacks: dict[int, asyncio.Future[bytes]] = {}
+        self._push_callback: Callable[[dict[str, Any]], None] | None = None
         self._connected = False
         self._disconnect_callback: Callable[[], None] | None = None
 
@@ -70,6 +71,7 @@ class IconaBridgeClient:
         # Enable TCP keepalives so the OS detects when the device goes to sleep
         # without sending a FIN. Without this, the connection appears alive
         # indefinitely and we never reconnect — missing doorbell ring events.
+        assert self._writer is not None
         sock = self._writer.transport.get_extra_info("socket")
         if sock is not None:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
@@ -386,7 +388,7 @@ class IconaBridgeClient:
         seq = self._next_sequence()
         await self._send(encode_channel_close(seq, channel.server_channel_id))
 
-    async def send_json(self, channel: Channel, msg: dict) -> dict:
+    async def send_json(self, channel: Channel, msg: dict[str, Any]) -> dict[str, Any]:
         """Send a JSON message on a channel and wait for JSON response.
 
         Uses a per-channel lock so concurrent callers are serialized — the
@@ -490,6 +492,6 @@ class IconaBridgeClient:
         ch = self._channels.get(name)
         return ch if ch is not None and ch.is_open else None
 
-    def set_push_callback(self, callback: Callable[[dict], None] | None) -> None:
+    def set_push_callback(self, callback: Callable[[dict[str, Any]], None] | None) -> None:
         """Set a callback for push notifications (unsolicited JSON messages)."""
         self._push_callback = callback

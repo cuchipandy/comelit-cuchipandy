@@ -6,6 +6,7 @@ import json
 import struct
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import Any, cast
 
 from .const import VIDEO_FPS, VIDEO_HEIGHT, VIDEO_WIDTH
 
@@ -57,15 +58,15 @@ def decode_header(data: bytes) -> tuple[int, int]:
     return body_length, request_id
 
 
-def encode_json_message(msg: dict, request_id: int) -> bytes:
+def encode_json_message(msg: dict[str, Any], request_id: int) -> bytes:
     """Encode a JSON message with header. Uses compact JSON (no spaces)."""
     body = json.dumps(msg, separators=(",", ":")).encode("utf-8")
     return encode_header(len(body), request_id) + body
 
 
-def decode_json_body(body: bytes) -> dict:
+def decode_json_body(body: bytes) -> dict[str, Any]:
     """Decode a JSON body."""
-    return json.loads(body.decode("utf-8"))
+    return cast(dict[str, Any], json.loads(body.decode("utf-8")))
 
 
 def _null_terminated(s: str) -> bytes:

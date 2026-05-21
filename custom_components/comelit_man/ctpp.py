@@ -56,6 +56,7 @@ async def ctpp_init_sequence(
     await read_response_ctpp(client, channel, response_timeout)
 
     if send_ack:
+        assert timestamp is not None, "timestamp required when send_ack=True"
         ack_ts = (timestamp + _CTR_INCR_BOTH) & 0xFFFFFFFF
         await client.send_binary(
             channel, encode_call_response_ack(our_addr, apt_addr, ack_ts)

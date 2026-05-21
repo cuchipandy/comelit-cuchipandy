@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TOKEN, MAJOR_VERSION, MINOR_VERSION, Platform
 from homeassistant.core import HomeAssistant
@@ -75,7 +76,7 @@ async def _init_resource(hass: HomeAssistant, url: str, version: str) -> None:
         _LOGGER.debug("Added extra JS module: %s", url_versioned)
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Register the Lovelace card static files and add them to resources."""
     version = getattr(hass.data.get("integrations", {}).get(DOMAIN), "version", "0")
     for url, path in (

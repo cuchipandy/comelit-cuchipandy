@@ -83,9 +83,9 @@ class VideoCallSession:
         self._on_timeout = on_timeout
         self._rtp_receiver: RtpReceiver | None = None
         self._rtsp_server: LocalRtspServer | None = rtsp_server
-        self._timeout_task: asyncio.Task | None = None
-        self._tcp_task: asyncio.Task | None = None
-        self._ctpp_task: asyncio.Task | None = None
+        self._timeout_task: asyncio.Task[None] | None = None
+        self._tcp_task: asyncio.Task[None] | None = None
+        self._ctpp_task: asyncio.Task[None] | None = None
         self._active = False
         # True when this session opened CTPP itself (notifications OFF).
         # False when reusing the coordinator-opened channel (notifications ON).
