@@ -1,4 +1,4 @@
-﻿"""Constants for the Comelit Local integration."""
+"""Constants for the Comelit Local integration."""
 
 DOMAIN = "comelit_man"
 MANUFACTURER = "Comelit"

@@ -1,4 +1,4 @@
-﻿"""Comelit Local integration for Home Assistant."""
+"""Comelit Local integration for Home Assistant."""
 
 from __future__ import annotations
 
