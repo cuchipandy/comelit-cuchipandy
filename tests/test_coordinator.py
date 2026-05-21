@@ -62,6 +62,7 @@ def _make_coordinator(*, with_client: bool = False) -> ComelitLocalCoordinator:
     coordinator._connection_lost = False
     coordinator._ctpp_init_ts = 0
     coordinator.async_request_refresh = AsyncMock()
+    coordinator.async_set_updated_data = MagicMock()
     coordinator.logger = MagicMock()
     return coordinator
 

@@ -61,11 +61,9 @@ Platforms: `BUTTON, CAMERA, EVENT` | Min HA: `2026.1.0` | Repo: `https://github.
 **Working directory: `C:/Users/micha/code/comelit-man`**
 
 ```bash
-# First time — create venv
+# First time — create venv (matches CI exactly)
 python -m venv .venv
-.venv\Scripts\pip install pytest pytest-asyncio aiohttp av pytest-cov
-# Optional: install real HA types (CI always does this via pytest-homeassistant-custom-component)
-# .venv\Scripts\pip install pytest-homeassistant-custom-component
+.venv\Scripts\pip install pytest pytest-asyncio aiohttp av pytest-cov pytest-homeassistant-custom-component pyturbojpeg
 
 # All tests
 .venv\Scripts\pytest tests/ -v

@@ -66,10 +66,15 @@ class TestReauthFlow:
         from custom_components.comelit_man.config_flow import ComelitLocalConfigFlow
 
         flow = ComelitLocalConfigFlow()
-        # Stub the reauth entry
         mock_entry = MagicMock()
         mock_entry.data = {"host": HOST, "port": PORT, "http_port": 8080, "token": TOKEN}
         flow._get_reauth_entry = lambda: mock_entry
+        hass = MagicMock()
+        hass.config_entries.flow.async_progress_by_handler.return_value = []
+        hass.config_entries.async_entries.return_value = []
+        hass.config_entries.async_entry_for_domain_unique_id.return_value = None
+        flow.hass = hass
+        flow.context = {}
         return flow
 
     @pytest.mark.asyncio
@@ -129,6 +134,12 @@ class TestReconfigureFlow:
         mock_entry = MagicMock()
         mock_entry.data = {"host": HOST, "port": PORT, "http_port": 8080, "token": TOKEN}
         flow._get_reconfigure_entry = lambda: mock_entry
+        hass = MagicMock()
+        hass.config_entries.flow.async_progress_by_handler.return_value = []
+        hass.config_entries.async_entries.return_value = []
+        hass.config_entries.async_entry_for_domain_unique_id.return_value = None
+        flow.hass = hass
+        flow.context = {}
         return flow
 
     @pytest.mark.asyncio
@@ -324,6 +335,12 @@ class TestDhcpFlow:
         from custom_components.comelit_man.config_flow import ComelitLocalConfigFlow
 
         flow = ComelitLocalConfigFlow()
+        hass = MagicMock()
+        hass.config_entries.flow.async_progress_by_handler.return_value = []
+        hass.config_entries.async_entries.return_value = []
+        hass.config_entries.async_entry_for_domain_unique_id.return_value = None
+        flow.hass = hass
+        flow.context = {}
         return flow
 
     @pytest.mark.asyncio

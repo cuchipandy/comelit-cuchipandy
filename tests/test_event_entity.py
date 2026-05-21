@@ -23,7 +23,11 @@ def _make_entity() -> ComelitDoorbellEvent:
     entity.coordinator = coordinator
     entity._entry_id = "test_entry_id"
     entity._attr_unique_id = "test_entry_id_doorbell"
-    entity._events = []  # from _EventEntity stub
+    entity._events = []
+    def _fake_trigger_event(event_type, data=None):  # stub _trigger_event for real HA
+        entity._events.append({"event_type": event_type, "data": data or {}})
+    entity._trigger_event = _fake_trigger_event
+    entity.async_write_ha_state = MagicMock()
     return entity
 
 

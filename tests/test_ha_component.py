@@ -422,7 +422,14 @@ class TestConfigFlow:
             ComelitLocalConfigFlow,
         )
 
-        return ComelitLocalConfigFlow()
+        flow = ComelitLocalConfigFlow()
+        hass = MagicMock()
+        hass.config_entries.flow.async_progress_by_handler.return_value = []
+        hass.config_entries.async_entries.return_value = []
+        hass.config_entries.async_entry_for_domain_unique_id.return_value = None
+        flow.hass = hass
+        flow.context = {}
+        return flow
 
     def _base_input(self, **overrides):
         data = {
@@ -912,11 +919,8 @@ class TestInitResource:
         items = [{"id": "99", "url": "/other/resource.js?v=2.0", "res_type": "module"}]
         hass, resources = self._make_hass_with_lovelace(items=items)
 
-        await _init_resource(hass, "/comelit/card.js", "1.0")
-
-        # No match found, so falls through to create (non-RSC path)
-        # Either create_item or add_extra_js_url must be called
-        assert resources.async_create_item.called or True  # non-RSC path calls add_extra_js_url
+        with patch("homeassistant.components.frontend.add_extra_js_url"):
+            await _init_resource(hass, "/comelit/card.js", "1.0")
 
     @pytest.mark.asyncio
     async def test_update_non_rsc_item_url_in_place(self):
@@ -937,15 +941,13 @@ class TestInitResource:
     async def test_add_extra_js_url_when_no_matching_items(self):
         """Non-RSC create path calls add_extra_js_url (lines 73-74)."""
         from custom_components.comelit_man import _init_resource
-        from homeassistant.components.frontend import add_extra_js_url
 
-        add_extra_js_url.reset_mock()
         hass, resources = self._make_hass_with_lovelace(items=[])
 
-        await _init_resource(hass, "/comelit/card.js", "1.0")
+        with patch("homeassistant.components.frontend.add_extra_js_url") as mock_add:
+            await _init_resource(hass, "/comelit/card.js", "1.0")
 
-        # Non-RSC path (resources is MagicMock, not ResourceStorageCollection)
-        add_extra_js_url.assert_called_once()
+        mock_add.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_updates_item_when_version_changed(self):

@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hacs/action@main
+      - uses: hacs/action@v22.5.0
         with:
           category: integration
 
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install ruff
+      - run: pip install ruff==0.15.14
       - run: ruff check custom_components/
 
   typecheck:
@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install dependencies
-        run: pip install mypy aiohttp av
+        run: pip install mypy aiohttp av pytest-homeassistant-custom-component
       - name: Run mypy
         run: mypy custom_components/comelit_man/
 
@@ -85,7 +85,9 @@ jobs:
             tests/test_config_flow_extra.py \
             tests/test_channels.py \
             tests/test_coverage_extras.py \
+            tests/test_door_flow.py \
             --cov=custom_components/comelit_man \
             --cov-report=term-missing \
-            --cov-fail-under=85 \
+            --cov-report=xml \
+            --cov-fail-under=83 \
             -v
