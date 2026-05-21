@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: home-assistant/actions/hassfest@master
+      - uses: home-assistant/actions/hassfest@v1.0.0
 
   lint:
     name: Ruff
@@ -57,7 +57,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: pip install pytest pytest-asyncio aiohttp av pytest-homeassistant-custom-component pytest-cov
+        run: pip install pytest pytest-asyncio aiohttp av pytest-homeassistant-custom-component pytest-cov pyturbojpeg
       - name: Run unit tests
         run: |
           PYTHONPATH=. pytest \

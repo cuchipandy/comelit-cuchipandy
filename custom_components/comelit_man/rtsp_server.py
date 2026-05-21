@@ -471,7 +471,7 @@ class LocalRtspServer:
                     )
                     await writer.drain()
 
-        except (asyncio.TimeoutError, ConnectionError):
+        except (TimeoutError, ConnectionError):
             pass
         except Exception:
             _LOGGER.debug("RTSP client error", exc_info=True)
@@ -559,7 +559,7 @@ class LocalRtspServer:
                 data = await asyncio.wait_for(reader.read(256), timeout=10.0)
                 if not data or b"TEARDOWN" in data:
                     break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     # ------------------------------------------------------------------

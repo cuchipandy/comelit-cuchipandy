@@ -370,7 +370,7 @@ class IconaBridgeClient:
         try:
             await asyncio.wait_for(channel.open_event.wait(), timeout=READ_TIMEOUT)
         except TimeoutError:
-            raise ProtocolError(f"Timeout waiting for channel {name} to open")
+            raise ProtocolError(f"Timeout waiting for channel {name} to open") from None
 
         return channel
 
@@ -419,7 +419,7 @@ class IconaBridgeClient:
                     channel.name, channel.server_channel_id, list(self._callbacks.keys()),
                 )
                 self._callbacks.pop(channel.server_channel_id, None)
-                raise ProtocolError(f"Timeout waiting for response on {channel.name}")
+                raise ProtocolError(f"Timeout waiting for response on {channel.name}") from None
 
         if is_json_body(body):
             return decode_json_body(body)
