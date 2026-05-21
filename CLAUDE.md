@@ -155,12 +155,16 @@ git push origin dev
 
 ## Quality Scale
 
-**Current tier: Bronze (initial)**
+**Tier status (v1.0.0):**
+- Bronze — EFFECTIVE PASS (`brands` accepted-FAIL, won't fix; all other rules PASS)
+- Silver — 1 FAIL from MET: `test-coverage` (85% actual vs 95% required, BL-023)
+- Gold — **MET** (19/19 applicable rules PASS)
+- Platinum — **MET** (all 3 rules PASS)
 
 Full audit checklist: `memory/comelit_man_audit.md`
 Quality scale rules: https://developers.home-assistant.io/docs/core/integration-quality-scale/rules
 
-Target: Silver before first release → Gold before v1.0 → Platinum ongoing.
+Remaining work: BL-023 — raise test coverage from 85% to 95%. Gap is dominated by `rtsp_server.py` (44%, ~280 missed statements). Everything else is done.
 
 ---
 

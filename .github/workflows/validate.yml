@@ -84,7 +84,8 @@ jobs:
             tests/test_diagnostics_repairs.py \
             tests/test_config_flow_extra.py \
             tests/test_channels.py \
+            tests/test_coverage_extras.py \
             --cov=custom_components/comelit_man \
             --cov-report=term-missing \
-            --cov-fail-under=79 \
+            --cov-fail-under=85 \
             -v
