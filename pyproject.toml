@@ -10,6 +10,10 @@ line-length = 120
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+allow_hosts = ["127.0.0.1", "::1", "0.0.0.0", "localhost"]
+
 [tool.mypy]
 python_version = "3.13"
 strict = true
