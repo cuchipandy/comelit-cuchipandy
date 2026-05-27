@@ -16,6 +16,19 @@ from custom_components.comelit_man.models import Camera, DeviceConfig, Door
 # ---------------------------------------------------------------------------
 
 
+def _close_coro_args(*args: object, **kwargs: object) -> None:
+    """Side-effect for background-task mocks: close any coroutine arguments.
+
+    config_entry.async_create_background_task receives real coroutines (e.g.
+    self._auto_restart_video(), self.async_request_refresh()) but never awaits
+    them.  Without this side_effect, Python emits RuntimeWarning: coroutine
+    '...' was never awaited for every test that exercises those code paths.
+    """
+    for arg in args:
+        if asyncio.iscoroutine(arg):
+            arg.close()
+
+
 def _make_config() -> DeviceConfig:
     return DeviceConfig(
         apt_address="00000001",
@@ -35,6 +48,7 @@ def _make_coordinator(*, with_client: bool = False) -> ComelitLocalCoordinator:
     coordinator.device_name = "Comelit Intercom"
     config_entry = MagicMock()
     config_entry.options = {"enable_notifications": True}
+    config_entry.async_create_background_task.side_effect = _close_coro_args
     coordinator.config_entry = config_entry
     if with_client:
         mock_client = MagicMock()
@@ -1003,6 +1017,9 @@ class TestKeepaliveLoopBody:
             pass
 
         async def raise_cancelled(*args, **kwargs):
+            for arg in args:
+                if asyncio.iscoroutine(arg):
+                    arg.close()
             raise asyncio.CancelledError
 
         with (

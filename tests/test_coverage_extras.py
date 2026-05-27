@@ -28,6 +28,18 @@ from custom_components.comelit_man.protocol import (
 # ---------------------------------------------------------------------------
 
 
+def _raises_timeout(*args: object, **kwargs: object) -> None:
+    """Raise TimeoutError after closing any coroutine arguments.
+
+    Use as side_effect when patching asyncio.wait_for to avoid
+    RuntimeWarning: coroutine '...' was never awaited.
+    """
+    for arg in args:
+        if asyncio.iscoroutine(arg):
+            arg.close()
+    raise TimeoutError
+
+
 class _FakeWriter:
     def __init__(self):
         self.data = bytearray()
@@ -188,7 +200,7 @@ class TestConnectErrors:
         client = IconaBridgeClient("127.0.0.1", 64100)
         with patch(
             "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=TimeoutError,
+            side_effect=_raises_timeout,
         ):
             with pytest.raises(ConnectionComelitError):
                 await client.connect()
@@ -344,7 +356,7 @@ class TestOpenChannelTimeout:
 
         with patch(
             "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=TimeoutError,
+            side_effect=_raises_timeout,
         ):
             with pytest.raises(ProtocolError, match="Timeout"):
                 await client.open_channel("CH", ChannelType.UAUT)

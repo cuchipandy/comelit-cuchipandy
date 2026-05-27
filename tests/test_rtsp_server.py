@@ -1189,3 +1189,1043 @@ class TestNtpNow:
         s1, _ = _ntp_now()
         s2, _ = _ntp_now()
         assert s2 >= s1
+
+
+# ===========================================================================
+# TRACK B — async feed loops and RTSP client handler
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for Track B
+# ---------------------------------------------------------------------------
+
+
+class _RequestReader:
+    """Fake StreamReader that returns pre-queued byte chunks sequentially."""
+
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = list(chunks)
+
+    async def read(self, n: int) -> bytes:
+        return self._chunks.pop(0) if self._chunks else b""
+
+
+class _ResponseWriter:
+    """Fake StreamWriter that captures all written bytes."""
+
+    def __init__(self, socket: object = None, peername: tuple | None = ("127.0.0.1", 50000)) -> None:
+        self._buf = bytearray()
+        self._sock = socket
+        self._peername = peername
+        self.closed = False
+
+    def write(self, data: bytes) -> None:
+        self._buf.extend(data)
+
+    async def drain(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.closed = True
+
+    def get_extra_info(self, key: str, default: object = None) -> object:
+        if key == "peername":
+            return self._peername
+        if key == "socket":
+            return self._sock
+        return default
+
+    def is_closing(self) -> bool:
+        return False
+
+    @property
+    def data(self) -> bytes:
+        return bytes(self._buf)
+
+
+# ---------------------------------------------------------------------------
+# B-4: _rtcp_sr_loop
+# ---------------------------------------------------------------------------
+
+
+class TestRtcpSrLoop:
+    @pytest.mark.asyncio
+    async def test_pre_loop_wait_then_broadcasts_to_active_client(self):
+        """Pre-loop sleep runs until pkt_count > 0, then SRs are sent."""
+        server = LocalRtspServer()
+        server._running = True
+        server._video_pkt_count = 0  # triggers pre-loop wait
+
+        w = MagicMock()
+        w.is_closing.return_value = False
+        written: list[bytes] = []
+        w.write = lambda d: written.append(d)
+        server._active_clients.append(_TcpClient(writer=w, video_ch=0, audio_ch=2))
+
+        sleep_count = 0
+
+        async def mock_sleep(t: float) -> None:
+            nonlocal sleep_count
+            sleep_count += 1
+            if sleep_count == 1:
+                # unblock pre-loop
+                server._video_pkt_count = 1
+                server._audio_pkt_count = 1
+            else:
+                # exit main loop after one SR emission
+                server._running = False
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
+            await server._rtcp_sr_loop()
+
+        rtcp_writes = [x for x in written if x and x[0] == 0x24]
+        assert len(rtcp_writes) >= 2  # video SR + audio SR
+
+    @pytest.mark.asyncio
+    async def test_no_clients_skips_sr(self):
+        """When no clients are registered, SR broadcast is skipped."""
+        server = LocalRtspServer()
+        server._running = True
+        server._video_pkt_count = 1  # skip pre-loop
+
+        sleep_count = 0
+        broadcasts: list[tuple] = []
+
+        async def mock_sleep(t: float) -> None:
+            nonlocal sleep_count
+            sleep_count += 1
+            server._running = False
+
+        orig_brtcp = server._broadcast_rtcp
+        def track_broadcast(pkt, is_video):
+            broadcasts.append((pkt, is_video))
+            orig_brtcp(pkt, is_video)
+        server._broadcast_rtcp = track_broadcast  # type: ignore[method-assign]
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
+            await server._rtcp_sr_loop()
+
+        assert broadcasts == []  # no clients → no broadcasts
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_exits_cleanly(self):
+        """CancelledError inside the SR loop is silently swallowed."""
+        server = LocalRtspServer()
+        server._running = True
+        server._video_pkt_count = 1
+
+        async def mock_sleep(t: float) -> None:
+            raise asyncio.CancelledError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
+            await server._rtcp_sr_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_exception_caught(self):
+        """Unexpected exceptions in the SR loop are caught and logged."""
+        server = LocalRtspServer()
+        server._running = True
+        server._video_pkt_count = 1
+
+        async def mock_sleep(t: float) -> None:
+            raise ValueError("unexpected")
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
+            await server._rtcp_sr_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_udp_client_gets_sr(self):
+        """UDP host triggers SR broadcast path."""
+        server = LocalRtspServer()
+        server._running = True
+        server._video_pkt_count = 1
+        server._audio_pkt_count = 1
+        server._udp_host = "192.168.1.5"
+        server._udp_video_port = 5004
+        sock = MagicMock()
+        server._video_sock = sock
+
+        sleep_count = 0
+
+        async def mock_sleep(t: float) -> None:
+            nonlocal sleep_count
+            sleep_count += 1
+            server._running = False
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
+            await server._rtcp_sr_loop()
+
+        assert sock.sendto.called
+
+
+# ---------------------------------------------------------------------------
+# B-3b: _audio_feed_loop
+# ---------------------------------------------------------------------------
+
+
+class TestAudioFeedLoop:
+    @pytest.mark.asyncio
+    async def test_happy_path_broadcasts_audio(self):
+        """Audio payload from queue is broadcast."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        payload = b"\xd5" * 160
+        items: list[bytes] = [payload]
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            raise asyncio.CancelledError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()
+
+        assert len(broadcasts) == 1
+        rtp = broadcasts[0]
+        assert rtp[1] & 0x7F == 8  # PT=8 PCMA
+
+    @pytest.mark.asyncio
+    async def test_timeout_sends_silence(self):
+        """Timeout from queue.get sends PCMA silence frame."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        call_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            nonlocal call_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            call_count += 1
+            if call_count >= 2:
+                server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()
+
+        assert len(broadcasts) >= 1
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_exits_cleanly(self):
+        server = LocalRtspServer()
+        server._running = True
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            raise asyncio.CancelledError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_exception_caught(self):
+        server = LocalRtspServer()
+        server._running = True
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            server._running = False
+            raise ValueError("unexpected")
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_increments_audio_counters(self):
+        """Audio pkt_count and octet_count are incremented per packet."""
+        server = LocalRtspServer()
+        server._running = True
+        server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
+
+        payload = b"\xd5" * 160
+        items: list[bytes] = [payload]
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            raise asyncio.CancelledError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()
+
+        assert server._audio_pkt_count == 1
+        assert server._audio_octet_count == len(payload)
+
+
+# ---------------------------------------------------------------------------
+# B-3a: _video_feed_loop
+# ---------------------------------------------------------------------------
+
+
+class TestVideoFeedLoop:
+    @pytest.mark.asyncio
+    async def test_happy_path_broadcasts_nal(self):
+        """Valid NAL from queue is broadcast via _send_h264."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        items: list[tuple] = [(1000, b"\x65" + b"\xAA" * 20)]
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert len(broadcasts) >= 1
+
+    @pytest.mark.asyncio
+    async def test_strips_4byte_start_code(self):
+        """4-byte start code is stripped before _send_h264."""
+        server = LocalRtspServer()
+        server._running = True
+        sent: list[bytes] = []
+        server._send_h264 = lambda nal: sent.append(nal)  # type: ignore[method-assign]
+
+        items: list[tuple] = [(1000, b"\x00\x00\x00\x01\x65" + b"\xCC" * 10)]
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert len(sent) == 1
+        assert not sent[0].startswith(b"\x00\x00\x00\x01")
+
+    @pytest.mark.asyncio
+    async def test_strips_3byte_start_code(self):
+        """3-byte start code is stripped before _send_h264."""
+        server = LocalRtspServer()
+        server._running = True
+        sent: list[bytes] = []
+        server._send_h264 = lambda nal: sent.append(nal)  # type: ignore[method-assign]
+
+        items: list[tuple] = [(1000, b"\x00\x00\x01\x65" + b"\xDD" * 10)]
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert len(sent) == 1
+        assert sent[0][0] == 0x65
+
+    @pytest.mark.asyncio
+    async def test_empty_nal_after_strip_skipped(self):
+        """NAL that is all start code (empty after strip) is skipped."""
+        server = LocalRtspServer()
+        server._running = True
+        sent: list[bytes] = []
+        server._send_h264 = lambda nal: sent.append(nal)  # type: ignore[method-assign]
+
+        items: list[tuple] = [(1000, b"\x00\x00\x00\x01")]  # start code only
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert len(sent) == 0
+
+    @pytest.mark.asyncio
+    async def test_caches_sps(self):
+        """SPS NAL (type 7) is cached in _latest_sps."""
+        server = LocalRtspServer()
+        server._running = True
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+
+        sps = b"\x67" + b"\x42" * 6
+        items: list[tuple] = [(1000, sps)]
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert server._latest_sps == sps
+
+    @pytest.mark.asyncio
+    async def test_caches_pps(self):
+        """PPS NAL (type 8) is cached in _latest_pps."""
+        server = LocalRtspServer()
+        server._running = True
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+
+        pps = b"\x68" + b"\xCE" * 4
+        items: list[tuple] = [(1000, pps)]
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert server._latest_pps == pps
+
+    @pytest.mark.asyncio
+    async def test_timestamp_rebase_on_first_nal(self):
+        """First NAL rebases _video_ts_offset and clears rebase flag."""
+        server = LocalRtspServer()
+        server._running = True
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+        assert server._last_device_ts is None
+
+        items: list[tuple] = [(5000, b"\x65" + b"\xAA" * 5)]
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert server._last_device_ts == 5000
+        assert server._video_ts_rebase_pending is False
+
+    @pytest.mark.asyncio
+    async def test_backward_jump_triggers_rebase(self):
+        """Backward timestamp jump (> 0x80000000 forward distance) triggers rebase."""
+        server = LocalRtspServer()
+        server._running = True
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+        server._last_device_ts = 5000
+        server._video_ts_rebase_pending = False
+        server._video_ts_out = 9000
+        server._video_ts_offset = 0
+
+        items: list[tuple] = [(100, b"\x65" + b"\xAA" * 5)]  # backward: (100-5000)&mask >> 0x80000000
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        # offset was recomputed (backward jump detected)
+        assert server._video_ts_offset != 0
+
+    @pytest.mark.asyncio
+    async def test_forward_advance_no_rebase(self):
+        """Normal forward advance does not change _video_ts_offset."""
+        server = LocalRtspServer()
+        server._running = True
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+        server._last_device_ts = 1000
+        server._video_ts_rebase_pending = False
+        server._video_ts_offset = 500
+        server._video_ts_out = 1500
+
+        items: list[tuple] = [(1100, b"\x65" + b"\xAA" * 5)]  # +100 forward
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert server._video_ts_offset == 500  # unchanged
+        assert server._video_ts_out == (1100 + 500) & 0xFFFFFFFF
+
+    @pytest.mark.asyncio
+    async def test_timeout_continues_loop(self):
+        """Timeout from queue.get continues the loop (no item consumed)."""
+        server = LocalRtspServer()
+        server._running = True
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+
+        call_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            nonlocal call_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            call_count += 1
+            if call_count >= 2:
+                server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()
+
+        assert call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_exits_cleanly(self):
+        server = LocalRtspServer()
+        server._running = True
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            raise asyncio.CancelledError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_exception_caught(self):
+        server = LocalRtspServer()
+        server._running = True
+
+        async def mock_wait_for(coro: object, timeout: float) -> tuple:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            server._running = False
+            raise ValueError("unexpected")
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_feed_loop()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# B-2: _video_rtp_passthrough_loop
+# ---------------------------------------------------------------------------
+
+
+def _make_rtp_pkt(
+    payload: bytes = b"\x65" + b"\xAA" * 10,
+    ts: int = 1000,
+    seq: int = 1,
+) -> bytes:
+    return struct.pack("!BBHII", 0x80, 0xE0, seq, ts, 0xDEADBEEF) + payload
+
+
+class TestVideoRtpPassthroughLoop:
+    @pytest.mark.asyncio
+    async def test_happy_path_broadcasts_rewritten_rtp(self):
+        """Valid RTP from queue has header rewritten and is broadcast."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[tuple] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append((pkt, is_video))  # type: ignore[method-assign]
+
+        rtp = _make_rtp_pkt()
+        items: list[bytes] = [rtp]
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert len(broadcasts) == 1
+        assert broadcasts[0][1] is True  # is_video
+
+    @pytest.mark.asyncio
+    async def test_short_packet_skipped(self):
+        """Packets shorter than 12 bytes are skipped."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        items: list[bytes] = [b"\x80\xe0" + b"\x00" * 5]  # 7 bytes < 12
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert broadcasts == []
+
+    @pytest.mark.asyncio
+    async def test_empty_payload_skipped(self):
+        """Exactly 12-byte RTP with no payload is skipped."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        items: list[bytes] = [b"\x80\xe0" + b"\x00" * 10]  # 12 bytes exactly, no payload
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert broadcasts == []
+
+    @pytest.mark.asyncio
+    async def test_caches_sps(self):
+        """SPS NAL in payload (type 7) cached in _latest_sps."""
+        server = LocalRtspServer()
+        server._running = True
+        server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
+
+        sps_payload = b"\x67" + b"\x42" * 8
+        rtp = _make_rtp_pkt(payload=sps_payload)
+        items: list[bytes] = [rtp]
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert server._latest_sps == sps_payload
+
+    @pytest.mark.asyncio
+    async def test_caches_pps(self):
+        """PPS NAL in payload (type 8) cached in _latest_pps."""
+        server = LocalRtspServer()
+        server._running = True
+        server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
+
+        pps_payload = b"\x68" + b"\xCE" * 4
+        rtp = _make_rtp_pkt(payload=pps_payload)
+        items: list[bytes] = [rtp]
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert server._latest_pps == pps_payload
+
+    @pytest.mark.asyncio
+    async def test_timeout_triggers_fallback_after_three_misses(self):
+        """Three consecutive timeouts with non-empty nal_queue triggers _drain_nal_queue_fallback."""
+        server = LocalRtspServer()
+        server._running = True
+        server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
+        server.nal_queue.put_nowait((1000, b"\x65" + b"\xAA" * 10))
+
+        fallback_called: list[bool] = []
+        original_drain = server._drain_nal_queue_fallback
+
+        async def patched_drain() -> None:
+            fallback_called.append(True)
+            await original_drain()
+
+        server._drain_nal_queue_fallback = patched_drain  # type: ignore[method-assign]
+
+        timeout_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            nonlocal timeout_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            timeout_count += 1
+            if timeout_count > 3:
+                server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert fallback_called  # drain was triggered at timeout_count == 3
+
+    @pytest.mark.asyncio
+    async def test_fallback_count_resets_on_successful_get(self):
+        """Successful RTP get resets fallback_count to 0."""
+        server = LocalRtspServer()
+        server._running = True
+        server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
+
+        # First call: return valid RTP (resets fallback_count)
+        # Subsequent calls: timeout → exit
+        rtp = _make_rtp_pkt()
+        items: list[bytes] = [rtp]
+        call_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            nonlocal call_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            call_count += 1
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert call_count >= 2  # consumed packet + at least one timeout
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_exits_cleanly(self):
+        server = LocalRtspServer()
+        server._running = True
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            raise asyncio.CancelledError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_exception_caught(self):
+        server = LocalRtspServer()
+        server._running = True
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            server._running = False
+            raise ValueError("unexpected")
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_rewrites_rtp_header_pt_and_seq(self):
+        """RTP header is rewritten: PT=96, seq from server counter."""
+        server = LocalRtspServer()
+        server._running = True
+        server._video_seq = 10
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        rtp = _make_rtp_pkt(payload=b"\x65" + b"\xAA" * 5)
+        items: list[bytes] = [rtp]
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            if items:
+                return items.pop(0)
+            server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._video_rtp_passthrough_loop()
+
+        assert len(broadcasts) == 1
+        pkt = broadcasts[0]
+        assert (pkt[1] & 0x7F) == 96  # PT forced to 96
+        assert struct.unpack_from("!H", pkt, 2)[0] == 10  # seq = initial value
+        assert server._video_seq == 11  # incremented
+
+
+# ---------------------------------------------------------------------------
+# B-1: _handle_client
+# ---------------------------------------------------------------------------
+
+
+class TestHandleClient:
+    @pytest.mark.asyncio
+    async def test_options_response(self):
+        """OPTIONS returns 200 OK with allowed methods."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([
+            b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+            b"",
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"RTSP/1.0 200 OK" in writer.data
+        assert b"DESCRIBE" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_describe_returns_sdp(self):
+        """DESCRIBE returns 200 OK with SDP body."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([
+            b"DESCRIBE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
+            b"",
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"Content-Type: application/sdp" in writer.data
+        assert b"m=video" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_setup_tcp_returns_session_header(self):
+        """SETUP with TCP interleaved returns Session header."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([
+            b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
+            b"CSeq: 3\r\n"
+            b"Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
+            b"",
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"Session:" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_play_with_ready_event_registers_client_and_returns_200(self):
+        """PLAY with ready event set registers client and returns 200 OK."""
+        server = LocalRtspServer()
+        server._running = True
+        server._ready_event.set()
+        reader = _RequestReader([
+            b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
+            b"CSeq: 1\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
+            b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
+            b"",  # EOF in _wait_for_teardown
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"RTSP/1.0 200 OK" in writer.data
+        assert len(server._active_clients) == 0  # removed in finally
+
+    @pytest.mark.asyncio
+    async def test_play_timeout_returns_503(self):
+        """PLAY with ready event timeout returns 503 Service Unavailable."""
+        server = LocalRtspServer()
+        server._running = True
+        # ready_event NOT set
+
+        call_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes | None:
+            nonlocal call_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            call_count += 1
+            if call_count == 1:
+                # First call: reader.read — return the PLAY request
+                return b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n"
+            # Second call: ready_event.wait — timeout → 503
+            raise TimeoutError
+
+        reader = _RequestReader([])  # mock bypasses reader
+        writer = _ResponseWriter()
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._handle_client(reader, writer)
+        assert b"503 Service Unavailable" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_teardown_in_main_loop_returns_200(self):
+        """TEARDOWN before PLAY returns 200 OK from main loop."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([
+            b"TEARDOWN rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 5\r\n\r\n",
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"RTSP/1.0 200 OK" in writer.data
+        assert b"Session:" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_unknown_method_returns_405(self):
+        """Unknown RTSP method returns 405 Method Not Allowed."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([
+            b"ANNOUNCE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+            b"",
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"405 Method Not Allowed" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_empty_read_returns_cleanly(self):
+        """Immediate EOF from reader exits cleanly."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([b""])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_partial_then_eof_returns_cleanly(self):
+        """Partial request followed by EOF exits via 'if not chunk: return'."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([
+            b"OPTIONS rtsp://127.0.0.1",  # no \r\n\r\n yet
+            b"",  # EOF mid-request
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_timeout_error_caught(self):
+        """TimeoutError from reader.read is caught by except (TimeoutError, ConnectionError)."""
+        server = LocalRtspServer()
+        server._running = True
+
+        class _TimeoutReader:
+            async def read(self, n: int) -> bytes:
+                raise TimeoutError("no data")
+
+        writer = _ResponseWriter()
+        await server._handle_client(_TimeoutReader(), writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_connection_error_caught(self):
+        """ConnectionError from reader.read is caught by except (TimeoutError, ConnectionError)."""
+        server = LocalRtspServer()
+        server._running = True
+
+        class _ConnErrorReader:
+            async def read(self, n: int) -> bytes:
+                raise ConnectionError("peer reset")
+
+        writer = _ResponseWriter()
+        await server._handle_client(_ConnErrorReader(), writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_general_exception_caught(self):
+        """Unexpected exception from reader.read is caught by except Exception."""
+        server = LocalRtspServer()
+        server._running = True
+
+        class _BrokenReader:
+            async def read(self, n: int) -> bytes:
+                raise RuntimeError("unexpected failure")
+
+        writer = _ResponseWriter()
+        await server._handle_client(_BrokenReader(), writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_peername_none_uses_unknown_host(self):
+        """When peername is None, client_host is set to 'unknown'."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([b""])
+        writer = _ResponseWriter(peername=None)
+        await server._handle_client(reader, writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_socket_not_none_sets_tcp_nodelay(self):
+        """When socket info is available, TCP_NODELAY is set on it."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([b""])
+        mock_sock = MagicMock()
+        writer = _ResponseWriter(socket=mock_sock)
+        await server._handle_client(reader, writer)
+        mock_sock.setsockopt.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_empty_lines_break(self):
+        """Request with only CRLF (no method line) causes 'if not lines: break'."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([b"\r\n\r\n"])  # pure CRLF, no content
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_short_request_line_break(self):
+        """Request with < 2 parts on first line causes 'if len(parts) < 2: break'."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader([b"RTSP/1.0\r\n\r\n"])  # only one token
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_full_options_describe_setup_play_teardown_flow(self):
+        """Complete RTSP session: OPTIONS→DESCRIBE→SETUP→PLAY→TEARDOWN."""
+        server = LocalRtspServer()
+        server._running = True
+        server._ready_event.set()
+        reader = _RequestReader([
+            b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+            b"DESCRIBE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
+            b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
+            b"CSeq: 3\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
+            b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 4\r\n\r\n",
+            b"TEARDOWN /intercom RTSP/1.0\r\n",  # read by _wait_for_teardown
+        ])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+
+        resp = writer.data
+        assert resp.count(b"RTSP/1.0 200 OK") >= 4
+        assert b"application/sdp" in resp  # DESCRIBE
+        assert b"Session:" in resp  # SETUP/PLAY
+        assert len(server._active_clients) == 0  # removed in finally
