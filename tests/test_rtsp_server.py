@@ -12,6 +12,8 @@ from custom_components.comelit_man.rtsp_server import (
     LocalRtspServer,
     _TcpClient,
     _build_rtp,
+    _build_rtcp_sr,
+    _ntp_now,
 )
 
 
@@ -554,3 +556,636 @@ class TestRtspUrl:
         server = LocalRtspServer(bind_host="0.0.0.0")
         server._rtsp_port = 8554
         assert server.rtsp_url == "rtsp://0.0.0.0:8554/intercom"
+
+
+# ===========================================================================
+# TRACK A — direct unit tests, no TCP client required
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# A-1: mark_ready, mark_not_ready, disconnect_clients, reset rtp_queue drain
+# ---------------------------------------------------------------------------
+
+
+class TestMarkReadyNotReady:
+    def test_mark_ready_sets_event(self):
+        server = LocalRtspServer()
+        assert not server._ready_event.is_set()
+        server.mark_ready()
+        assert server._ready_event.is_set()
+
+    def test_mark_not_ready_clears_event(self):
+        server = LocalRtspServer()
+        server._ready_event.set()
+        server.mark_not_ready()
+        assert not server._ready_event.is_set()
+
+    def test_mark_ready_then_not_ready(self):
+        server = LocalRtspServer()
+        server.mark_ready()
+        server.mark_not_ready()
+        assert not server._ready_event.is_set()
+
+
+class TestDisconnectClients:
+    def test_closes_all_writers(self):
+        server = LocalRtspServer()
+        w1, w2 = MagicMock(), MagicMock()
+        server._active_clients.extend([_TcpClient(writer=w1), _TcpClient(writer=w2)])
+        server.disconnect_clients()
+        w1.close.assert_called_once()
+        w2.close.assert_called_once()
+
+    def test_empties_active_clients(self):
+        server = LocalRtspServer()
+        server._active_clients.append(_TcpClient(writer=MagicMock()))
+        server.disconnect_clients()
+        assert server._active_clients == []
+
+    def test_no_clients_silent(self):
+        server = LocalRtspServer()
+        server.disconnect_clients()  # must not raise
+
+    def test_writer_close_exception_suppressed(self):
+        server = LocalRtspServer()
+        w = MagicMock()
+        w.close.side_effect = OSError("broken pipe")
+        server._active_clients.append(_TcpClient(writer=w))
+        server.disconnect_clients()  # must not raise
+        assert server._active_clients == []
+
+
+class TestResetRtpQueueDrain:
+    def test_reset_drains_rtp_queue(self):
+        server = LocalRtspServer()
+        server.rtp_queue.put_nowait(b"\x80\x60" + b"\x00" * 10)
+        server.rtp_queue.put_nowait(b"\x80\x60" + b"\x00" * 10)
+        server.reset()
+        assert server.rtp_queue.empty()
+
+    def test_reset_primes_clients_with_video_ch(self):
+        server = LocalRtspServer()
+        written: list[bytes] = []
+        w = MagicMock()
+        w.write = lambda d: written.append(d)
+        server._active_clients.append(_TcpClient(writer=w, video_ch=0))
+        server.reset()
+        rtp_writes = [x for x in written if x and x[0] == 0x24]
+        assert len(rtp_writes) >= 2  # SPS + PPS primed
+
+
+# ---------------------------------------------------------------------------
+# A-2: _send(), _wait_for_teardown(), UDP path in _broadcast_rtp()
+# ---------------------------------------------------------------------------
+
+
+class TestSendStaticMethod:
+    def test_writes_ok_response(self):
+        writer = MagicMock()
+        LocalRtspServer._send(writer, cseq="1")
+        written = writer.write.call_args[0][0].decode()
+        assert "RTSP/1.0 200 OK" in written
+
+    def test_includes_cseq(self):
+        writer = MagicMock()
+        LocalRtspServer._send(writer, cseq="42")
+        written = writer.write.call_args[0][0].decode()
+        assert "CSeq: 42" in written
+
+    def test_includes_extra(self):
+        writer = MagicMock()
+        LocalRtspServer._send(writer, cseq="1", extra="Session: 87654321\r\n")
+        written = writer.write.call_args[0][0].decode()
+        assert "Session: 87654321" in written
+
+    def test_empty_extra(self):
+        writer = MagicMock()
+        LocalRtspServer._send(writer, cseq="5")
+        written = writer.write.call_args[0][0]
+        assert b"RTSP/1.0 200 OK" in written
+        assert b"CSeq: 5" in written
+
+
+class TestWaitForTeardown:
+    @pytest.mark.asyncio
+    async def test_exits_on_teardown(self):
+        server = LocalRtspServer()
+        server._running = True
+        reader = AsyncMock()
+        reader.read.return_value = b"TEARDOWN /intercom RTSP/1.0\r\n"
+        await server._wait_for_teardown(reader)
+
+    @pytest.mark.asyncio
+    async def test_exits_on_empty_data(self):
+        server = LocalRtspServer()
+        server._running = True
+        reader = AsyncMock()
+        reader.read.return_value = b""
+        await server._wait_for_teardown(reader)
+
+    @pytest.mark.asyncio
+    async def test_not_running_exits_immediately(self):
+        server = LocalRtspServer()
+        server._running = False
+        reader = AsyncMock()
+        await server._wait_for_teardown(reader)
+        reader.read.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_timeout_continues_then_teardown(self):
+        server = LocalRtspServer()
+        server._running = True
+        call_count = 0
+
+        async def mock_wait_for(coro, timeout):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                coro.close()
+                raise TimeoutError()
+            return await coro
+
+        reader = AsyncMock()
+        reader.read.return_value = b"TEARDOWN"
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._wait_for_teardown(reader)
+        assert call_count == 2
+
+
+class TestBroadcastRtpUdpPath:
+    def test_udp_video_sendto(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_video_port = 5004
+        sock = MagicMock()
+        server._video_sock = sock
+        pkt = b"\x80\xe0" + b"\x00" * 10
+        server._broadcast_rtp(pkt, is_video=True)
+        sock.sendto.assert_called_once_with(pkt, ("192.168.1.10", 5004))
+
+    def test_udp_audio_sendto(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_audio_port = 5006
+        sock = MagicMock()
+        server._audio_sock = sock
+        pkt = b"\x80\x08" + b"\x00" * 10
+        server._broadcast_rtp(pkt, is_video=False)
+        sock.sendto.assert_called_once_with(pkt, ("192.168.1.10", 5006))
+
+    def test_no_udp_host_skips(self):
+        server = LocalRtspServer()
+        server._udp_host = None
+        sock = MagicMock()
+        server._video_sock = sock
+        server._broadcast_rtp(b"\x80\xe0" + b"\x00" * 10, is_video=True)
+        sock.sendto.assert_not_called()
+
+    def test_udp_zero_port_skips(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_video_port = 0
+        sock = MagicMock()
+        server._video_sock = sock
+        server._broadcast_rtp(b"\x80\xe0" + b"\x00" * 10, is_video=True)
+        sock.sendto.assert_not_called()
+
+    def test_udp_os_error_suppressed(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_video_port = 5004
+        sock = MagicMock()
+        sock.sendto.side_effect = OSError("network unreachable")
+        server._video_sock = sock
+        server._broadcast_rtp(b"\x80\xe0" + b"\x00" * 10, is_video=True)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# A-3: _prime_client_with_parameter_sets(), _send_initial_sr_to_client()
+# ---------------------------------------------------------------------------
+
+
+def _make_writing_client(video_ch=0, audio_ch=None):
+    """Return (_TcpClient, written_list) where writer.write appends to the list."""
+    written: list[bytes] = []
+    w = MagicMock()
+    w.write = lambda data: written.append(data)
+    return _TcpClient(writer=w, video_ch=video_ch, audio_ch=audio_ch), written
+
+
+class TestPrimeClientWithParameterSets:
+    def test_no_video_ch_returns_early(self):
+        server = LocalRtspServer()
+        client, written = _make_writing_client(video_ch=None)
+        server._prime_client_with_parameter_sets(client)
+        assert written == []
+
+    def test_sends_sps_and_pps_rtp(self):
+        server = LocalRtspServer()
+        client, written = _make_writing_client(video_ch=0)
+        server._prime_client_with_parameter_sets(client)
+        rtp_writes = [x for x in written if x and x[0] == 0x24]
+        assert len(rtp_writes) >= 2
+
+    def test_increments_video_seq_by_two(self):
+        server = LocalRtspServer()
+        client, _ = _make_writing_client(video_ch=0)
+        initial = server._video_seq
+        server._prime_client_with_parameter_sets(client)
+        assert server._video_seq == initial + 2
+
+    def test_empty_sps_skipped(self):
+        server = LocalRtspServer()
+        server._latest_sps = b""  # triggers `if not nal: continue`
+        client, written = _make_writing_client(video_ch=0)
+        server._prime_client_with_parameter_sets(client)
+        rtp_writes = [x for x in written if x and x[0] == 0x24]
+        assert len(rtp_writes) == 1  # only PPS written
+
+    def test_write_exception_does_not_raise(self):
+        server = LocalRtspServer()
+        w = MagicMock()
+        w.write.side_effect = OSError("broken pipe")
+        client = _TcpClient(writer=w, video_ch=0)
+        server._prime_client_with_parameter_sets(client)  # must not raise
+
+    def test_uses_correct_channel(self):
+        server = LocalRtspServer()
+        client, written = _make_writing_client(video_ch=4)
+        server._prime_client_with_parameter_sets(client)
+        rtp_writes = [x for x in written if x and x[0] == 0x24]
+        for w in rtp_writes:
+            assert w[1] == 4  # channel byte
+
+
+class TestSendInitialSrToClient:
+    def test_video_sr_when_pkt_count_positive(self):
+        server = LocalRtspServer()
+        server._video_pkt_count = 10
+        server._video_octet_count = 1400
+        client, written = _make_writing_client(video_ch=0)
+        server._send_initial_sr_to_client(client)
+        assert len(written) == 1
+        assert written[0][0] == 0x24
+
+    def test_audio_sr_when_pkt_count_positive(self):
+        server = LocalRtspServer()
+        server._audio_pkt_count = 5
+        server._audio_octet_count = 800
+        client, written = _make_writing_client(video_ch=None, audio_ch=2)
+        server._send_initial_sr_to_client(client)
+        assert len(written) == 1
+
+    def test_both_srs_when_both_counts_positive(self):
+        server = LocalRtspServer()
+        server._video_pkt_count = 10
+        server._audio_pkt_count = 5
+        client, written = _make_writing_client(video_ch=0, audio_ch=2)
+        server._send_initial_sr_to_client(client)
+        assert len(written) == 2
+
+    def test_no_video_sr_when_pkt_count_zero(self):
+        server = LocalRtspServer()
+        server._video_pkt_count = 0
+        client, written = _make_writing_client(video_ch=0)
+        server._send_initial_sr_to_client(client)
+        assert len(written) == 0
+
+    def test_no_audio_sr_when_pkt_count_zero(self):
+        server = LocalRtspServer()
+        server._audio_pkt_count = 0
+        client, written = _make_writing_client(video_ch=None, audio_ch=2)
+        server._send_initial_sr_to_client(client)
+        assert len(written) == 0
+
+    def test_exception_suppressed(self):
+        server = LocalRtspServer()
+        server._video_pkt_count = 10
+        w = MagicMock()
+        w.write.side_effect = OSError("broken pipe")
+        client = _TcpClient(writer=w, video_ch=0)
+        server._send_initial_sr_to_client(client)  # must not raise
+
+    def test_rtcp_channel_is_video_ch_plus_one(self):
+        server = LocalRtspServer()
+        server._video_pkt_count = 1
+        client, written = _make_writing_client(video_ch=0)
+        server._send_initial_sr_to_client(client)
+        assert written[0][1] == 1  # video_ch + 1
+
+
+# ---------------------------------------------------------------------------
+# A-4: _translate_video_ts() — first call, rebase pending, forward, backward
+# ---------------------------------------------------------------------------
+
+
+class TestTranslateVideoTs:
+    def test_first_call_sets_offset_and_clears_rebase(self):
+        server = LocalRtspServer()
+        assert server._last_device_ts is None
+        server._video_ts_out = 0
+        server._translate_video_ts(1000)
+        expected_offset = (0 + 1 - 1000) & 0xFFFFFFFF
+        assert server._video_ts_offset == expected_offset
+        assert server._last_device_ts == 1000
+        assert server._video_ts_rebase_pending is False
+
+    def test_rebase_pending_forces_rebase_even_with_last_ts(self):
+        server = LocalRtspServer()
+        server._last_device_ts = 100
+        server._video_ts_out = 9000
+        server._video_ts_rebase_pending = True
+        server._translate_video_ts(200)
+        expected_offset = (9000 + 1 - 200) & 0xFFFFFFFF
+        assert server._video_ts_offset == expected_offset
+        assert server._video_ts_rebase_pending is False
+
+    def test_normal_forward_advance_no_rebase(self):
+        server = LocalRtspServer()
+        server._last_device_ts = 1000
+        server._video_ts_rebase_pending = False
+        server._video_ts_offset = 0
+        server._video_ts_out = 1000
+        server._translate_video_ts(1100)
+        # forward = 100 < 0x80000000 → no rebase; offset unchanged at 0
+        assert server._video_ts_out == 1100
+        assert server._last_device_ts == 1100
+
+    def test_backward_jump_triggers_rebase(self):
+        server = LocalRtspServer()
+        server._last_device_ts = 1000
+        server._video_ts_rebase_pending = False
+        server._video_ts_out = 5000
+        server._video_ts_offset = 0
+        server._translate_video_ts(100)  # backward: (100-1000)&0xFFFFFFFF >> 0x80000000
+        expected_offset = (5000 + 1 - 100) & 0xFFFFFFFF
+        assert server._video_ts_offset == expected_offset
+
+    def test_output_ts_is_device_plus_offset(self):
+        server = LocalRtspServer()
+        server._last_device_ts = 500
+        server._video_ts_rebase_pending = False
+        server._video_ts_offset = 100
+        server._video_ts_out = 600
+        server._translate_video_ts(600)
+        assert server._video_ts_out == (600 + 100) & 0xFFFFFFFF
+
+    def test_output_is_nondecreasing_on_forward(self):
+        server = LocalRtspServer()
+        server._translate_video_ts(1000)
+        out1 = server._video_ts_out
+        server._translate_video_ts(1100)
+        out2 = server._video_ts_out
+        assert out2 >= out1
+
+    def test_32bit_wrap(self):
+        server = LocalRtspServer()
+        server._video_ts_out = 0xFFFFFFF0
+        server._video_ts_rebase_pending = True
+        server._translate_video_ts(0x10)
+        # offset = (0xFFFFFFF0 + 1 - 0x10) & 0xFFFFFFFF = 0xFFFFFFE1
+        assert server._video_ts_out == (0x10 + server._video_ts_offset) & 0xFFFFFFFF
+
+
+# ---------------------------------------------------------------------------
+# A-5: _drain_nal_queue_fallback(), _broadcast_rtcp(), _build_rtcp_sr(), _ntp_now()
+# ---------------------------------------------------------------------------
+
+
+class TestDrainNalQueueFallback:
+    @pytest.mark.asyncio
+    async def test_strips_4byte_start_code(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        server.nal_queue.put_nowait((1000, b"\x00\x00\x00\x01\x65" + b"\xAA" * 10))
+        await server._drain_nal_queue_fallback()
+        assert len(captured) == 1
+        assert not captured[0].startswith(b"\x00\x00\x00\x01")
+        assert captured[0][0] == 0x65
+
+    @pytest.mark.asyncio
+    async def test_strips_3byte_start_code(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        server.nal_queue.put_nowait((2000, b"\x00\x00\x01\x65" + b"\xBB" * 10))
+        await server._drain_nal_queue_fallback()
+        assert len(captured) == 1
+        assert captured[0][0] == 0x65
+
+    @pytest.mark.asyncio
+    async def test_no_start_code_passthrough(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        raw = b"\x65" + b"\xCC" * 10
+        server.nal_queue.put_nowait((3000, raw))
+        await server._drain_nal_queue_fallback()
+        assert captured[0] == raw
+
+    @pytest.mark.asyncio
+    async def test_empty_nal_after_strip_skipped(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        server.nal_queue.put_nowait((4000, b"\x00\x00\x00\x01"))  # start code only
+        await server._drain_nal_queue_fallback()
+        assert len(captured) == 0
+
+    @pytest.mark.asyncio
+    async def test_caches_sps(self):
+        server = LocalRtspServer()
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+        sps = b"\x67" + b"\x42" * 8  # NAL type 7
+        server.nal_queue.put_nowait((5000, sps))
+        await server._drain_nal_queue_fallback()
+        assert server._latest_sps == sps
+
+    @pytest.mark.asyncio
+    async def test_caches_pps(self):
+        server = LocalRtspServer()
+        server._send_h264 = lambda nal: None  # type: ignore[method-assign]
+        pps = b"\x68" + b"\xCE" * 3  # NAL type 8
+        server.nal_queue.put_nowait((6000, pps))
+        await server._drain_nal_queue_fallback()
+        assert server._latest_pps == pps
+
+    @pytest.mark.asyncio
+    async def test_processes_multiple_nals(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        for i in range(3):
+            server.nal_queue.put_nowait((i * 3000, b"\x65" + bytes([i]) * 5))
+        await server._drain_nal_queue_fallback()
+        assert len(captured) == 3
+
+    @pytest.mark.asyncio
+    async def test_empty_queue_is_noop(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        await server._drain_nal_queue_fallback()
+        assert len(captured) == 0
+
+    @pytest.mark.asyncio
+    async def test_queue_empty_race_breaks_loop(self):
+        server = LocalRtspServer()
+        captured: list[bytes] = []
+        server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
+        server.nal_queue.put_nowait((1000, b"\x65"))  # non-empty so loop enters
+        with patch.object(server.nal_queue, "get_nowait", side_effect=asyncio.QueueEmpty):
+            await server._drain_nal_queue_fallback()
+        assert len(captured) == 0
+
+
+class TestBroadcastRtcp:
+    def _make(self, video_ch=0, audio_ch=None, closing=False):
+        written: list[bytes] = []
+        w = MagicMock()
+        w.is_closing.return_value = closing
+        w.write = lambda data: written.append(data)
+        return _TcpClient(writer=w, video_ch=video_ch, audio_ch=audio_ch), written
+
+    def test_sends_to_tcp_client_video(self):
+        server = LocalRtspServer()
+        client, written = self._make(video_ch=0)
+        server._active_clients.append(client)
+        server._broadcast_rtcp(b"\x80\xc8" + b"\x00" * 26, is_video=True)
+        assert len(written) == 1
+        assert written[0][1] == 1  # video_ch + 1
+
+    def test_sends_to_tcp_client_audio(self):
+        server = LocalRtspServer()
+        client, written = self._make(video_ch=None, audio_ch=2)
+        server._active_clients.append(client)
+        server._broadcast_rtcp(b"\x80\xc8" + b"\x00" * 26, is_video=False)
+        assert len(written) == 1
+        assert written[0][1] == 3  # audio_ch + 1
+
+    def test_skips_closing_client(self):
+        server = LocalRtspServer()
+        client, written = self._make(video_ch=0, closing=True)
+        server._active_clients.append(client)
+        server._broadcast_rtcp(b"\x00" * 10, is_video=True)
+        assert len(written) == 0
+
+    def test_skips_no_channel(self):
+        server = LocalRtspServer()
+        client, written = self._make(video_ch=None)
+        server._active_clients.append(client)
+        server._broadcast_rtcp(b"\x00" * 10, is_video=True)
+        assert len(written) == 0
+
+    def test_exception_removes_dead_client(self):
+        server = LocalRtspServer()
+        w = MagicMock()
+        w.is_closing.return_value = False
+        w.write.side_effect = OSError("broken pipe")
+        client = _TcpClient(writer=w, video_ch=0)
+        server._active_clients.append(client)
+        server._broadcast_rtcp(b"\x00" * 10, is_video=True)  # must not raise
+        assert client not in server._active_clients
+
+    def test_udp_video_port_plus_one(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_video_port = 5004
+        sock = MagicMock()
+        server._video_sock = sock
+        server._broadcast_rtcp(b"\x80\xc8" + b"\x00" * 26, is_video=True)
+        sock.sendto.assert_called_once_with(
+            b"\x80\xc8" + b"\x00" * 26, ("192.168.1.10", 5005)
+        )
+
+    def test_udp_audio_port_plus_one(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_audio_port = 5006
+        sock = MagicMock()
+        server._audio_sock = sock
+        server._broadcast_rtcp(b"\x80\xc8" + b"\x00" * 26, is_video=False)
+        sock.sendto.assert_called_once_with(
+            b"\x80\xc8" + b"\x00" * 26, ("192.168.1.10", 5007)
+        )
+
+    def test_no_udp_host_skips_sendto(self):
+        server = LocalRtspServer()
+        server._udp_host = None
+        sock = MagicMock()
+        server._video_sock = sock
+        server._broadcast_rtcp(b"\x00" * 10, is_video=True)
+        sock.sendto.assert_not_called()
+
+    def test_udp_os_error_suppressed(self):
+        server = LocalRtspServer()
+        server._udp_host = "192.168.1.10"
+        server._udp_video_port = 5004
+        sock = MagicMock()
+        sock.sendto.side_effect = OSError("net unreachable")
+        server._video_sock = sock
+        server._broadcast_rtcp(b"\x00" * 10, is_video=True)  # must not raise
+
+
+class TestBuildRtcpSr:
+    def _sr(self, **kw):
+        defaults = dict(
+            ssrc=0xC0DE1234, ntp_secs=3_900_000_000, ntp_frac=0,
+            rtp_ts=12345, pkt_count=100, octet_count=14000,
+        )
+        defaults.update(kw)
+        return _build_rtcp_sr(**defaults)
+
+    def test_returns_bytes(self):
+        assert isinstance(self._sr(), bytes)
+
+    def test_sr_pt_is_200(self):
+        result = self._sr()
+        assert result[1] == 200
+
+    def test_sdes_pt_is_202(self):
+        result = self._sr()
+        # SR is 28 bytes; SDES header starts right after
+        assert result[29] == 202
+
+    def test_ssrc_encoded_in_sr(self):
+        result = self._sr(ssrc=0xDEADBEEF)
+        assert struct.unpack_from("!I", result, 4)[0] == 0xDEADBEEF
+
+    def test_compound_packet_32bit_aligned(self):
+        assert len(self._sr()) % 4 == 0
+
+    def test_sr_length_word_is_6(self):
+        result = self._sr()
+        # V=2 P=0 RC=0 -> 0x80; PT=200; length (16-bit word count minus 1) = 6
+        length = struct.unpack_from("!H", result, 2)[0]
+        assert length == 6
+
+    def test_pkt_count_encoded(self):
+        result = self._sr(pkt_count=42)
+        # SR layout: 0x80 PT len ssrc ntp_hi ntp_lo rtp_ts pkt_count octet_count
+        # bytes: 1+1+2+4+4+4+4+4+4 = 28; pkt_count at offset 20
+        pkt_count = struct.unpack_from("!I", result, 20)[0]
+        assert pkt_count == 42
+
+
+class TestNtpNow:
+    def test_returns_tuple_of_two_ints(self):
+        secs, frac = _ntp_now()
+        assert isinstance(secs, int)
+        assert isinstance(frac, int)
+
+    def test_secs_above_ntp_2023_threshold(self):
+        secs, _ = _ntp_now()
+        # 2023-01-01 in NTP time ≈ 3,913,056,000
+        assert secs > 3_900_000_000
+
+    def test_frac_is_32bit_unsigned(self):
+        _, frac = _ntp_now()
+        assert 0 <= frac <= 0xFFFFFFFF
+
+    def test_consecutive_calls_nondecreasing(self):
+        s1, _ = _ntp_now()
+        s2, _ = _ntp_now()
+        assert s2 >= s1
