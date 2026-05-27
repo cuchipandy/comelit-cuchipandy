@@ -78,7 +78,7 @@ class ComelitDoorButton(ComelitEntity, ButtonEntity):
             # prevents _on_video_call_end from auto-restarting if the device
             # ends the call on its own during the delay window.
             self.coordinator.request_video_stop()
-            self.coordinator.config_entry.async_create_background_task(
+            self.coordinator.config_entry.async_create_background_task(  # type: ignore[union-attr]
                 self.hass, self._stop_video_after_delay(10), "comelit-stop-video-delay"
             )
 

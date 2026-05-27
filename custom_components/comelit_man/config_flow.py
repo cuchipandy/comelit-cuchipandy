@@ -11,7 +11,7 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_TOKEN
 
 if TYPE_CHECKING:
-    from homeassistant.components.dhcp import DhcpServiceInfo
+    from homeassistant.components.dhcp import DhcpServiceInfo  # type: ignore[attr-defined]
 
 from .auth import authenticate
 from .client import IconaBridgeClient

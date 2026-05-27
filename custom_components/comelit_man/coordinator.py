@@ -157,7 +157,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         # Start VIP event listener for doorbell ring detection, unless disabled.
         # The PUSH channel is one-shot FCM registration; actual call events
         # arrive as binary VIP messages on the CTPP channel.
-        if self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True):
+        if self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True):  # type: ignore[union-attr]
             try:
                 init_ts = await self._open_ctpp_channels(client, self._config)
                 vip = VipEventListener(
@@ -230,7 +230,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         self._client = client
         client.set_disconnect_callback(self._on_client_disconnect)
 
-        if self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True):
+        if self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True):  # type: ignore[union-attr]
             try:
                 init_ts = await self._open_ctpp_channels(client, self._config)
                 vip = VipEventListener(
@@ -337,7 +337,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 await open_door(self.host, self.port, self.token, self._client, self._config, door)
             except DoorOpenError as err:
                 if isinstance(err.__cause__, AuthenticationError):
-                    self.config_entry.async_start_reauth(self.hass)
+                    self.config_entry.async_start_reauth(self.hass)  # type: ignore[union-attr]
                 raise
 
     async def async_start_video(
@@ -444,7 +444,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         if self._video_stopped_by_user:
             return
         _LOGGER.debug("CALL_END received — scheduling session restart")
-        self.config_entry.async_create_background_task(
+        self.config_entry.async_create_background_task(  # type: ignore[union-attr]
             self.hass, self._auto_restart_video(), "comelit-auto-restart-video"
         )
 
@@ -527,7 +527,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         """
         if self._vip_listener or not self._config or not self._client:
             return
-        if not self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True):
+        if not self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True):  # type: ignore[union-attr]
             return
         try:
             vip = VipEventListener(
@@ -598,7 +598,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         if not self._connection_lost:
             _LOGGER.warning("Comelit device disconnected — attempting reconnect")
             self._connection_lost = True
-        self.config_entry.async_create_background_task(
+        self.config_entry.async_create_background_task(  # type: ignore[union-attr]
             self.hass, self.async_request_refresh(), "comelit-reconnect-refresh"
         )
 
