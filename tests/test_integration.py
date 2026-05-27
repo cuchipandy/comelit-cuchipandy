@@ -3,7 +3,14 @@
 Run with: COMELIT_HOST=192.168.1.XX COMELIT_TOKEN=<token> pytest tests/test_integration.py -v
 Set COMELIT_PASSWORD to auto-extract token via HTTP backup.
 
-Video tests require the intercom screen to be awake (tap it first).
+Video tests require:
+  1. The intercom screen to be awake (tap it — WiFi drops when idle).
+  2. The HA comelit_man integration to be STOPPED or DISABLED. The device
+     only accepts one CTPP session at a time; if HA is running with the
+     integration active, it holds CTPP and the video tests will fail with
+     ConnectionResetError during call initiation. Disable in HA → Settings
+     → Devices & Services → Comelit Man, run the tests, then re-enable.
+
 Gate flags:
   COMELIT_TEST_VIDEO=1   — run video pipeline tests (starts a real call)
   COMELIT_TEST_DOOR=1    — run door-open tests (actually triggers the relay)
@@ -131,6 +138,36 @@ async def test_push_listener():
         print(f"Received {len(events)} events: {events}")
     finally:
         await client.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# CTPP setup helper — mirrors coordinator._open_ctpp_channels
+# ---------------------------------------------------------------------------
+
+async def _setup_ctpp(client, config) -> int:
+    """Open CTPP+CSPB channels and run the init handshake.
+
+    The device requires this registration before it will accept a video call
+    initiation. In normal HA operation the coordinator does this at setup via
+    the VIP listener; integration tests must replicate it before calling
+    VideoCallSession.start().
+
+    Returns the init_ts used in the handshake (needed for subsequent ACKs).
+    """
+    import time
+    from custom_components.comelit_man.channels import ChannelType
+    from custom_components.comelit_man.ctpp import ctpp_init_sequence
+
+    our_addr = f"{config.apt_address}{config.apt_subaddress}"
+    ctpp = await client.open_channel("CTPP", ChannelType.UAUT, extra_data=our_addr)
+    await client.open_channel("CSPB", ChannelType.UAUT)
+    ts = int(time.time()) & 0xFFFFFFFF
+    await ctpp_init_sequence(
+        client, ctpp,
+        config.apt_address, config.apt_subaddress, our_addr,
+        ts,
+    )
+    return ts
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +300,7 @@ async def test_start_video_call():
     try:
         await authenticate(client, COMELIT_TOKEN)
         config = await get_device_config(client)
+        await _setup_ctpp(client, config)
 
         session = VideoCallSession(client, config, auto_timeout=False)
         # start() internally waits for the first video NAL before returning
@@ -309,6 +347,7 @@ async def test_rtsp_server_streams_video():
     try:
         await authenticate(client, COMELIT_TOKEN)
         config = await get_device_config(client)
+        await _setup_ctpp(client, config)
 
         url = await rtsp_server.start()
         port = rtsp_server._rtsp_port
@@ -388,6 +427,7 @@ async def test_video_then_door_open():
         await authenticate(client, COMELIT_TOKEN)
         config = await get_device_config(client)
         assert config.doors, "No doors in config — cannot test door open"
+        await _setup_ctpp(client, config)
 
         url = await rtsp_server.start()
         port = rtsp_server._rtsp_port
