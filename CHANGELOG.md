@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1
+
+CI and tooling improvements; no user-facing changes.
+
+### CI / tooling
+
+- **Pre-commit hooks** — ruff, mypy, and trailing-whitespace checks run locally before every commit
+- **Pinned CI deps** — all test dependencies pinned for reproducible runs; `pytest-homeassistant-custom-component` compat fixes applied
+- **mypy strict** — resolved all 37 real type annotation errors; 18 remaining false-positives are HA-stub artefacts (disappear with HA installed)
+- **ruff** — resolved all remaining violations (B904, UP040, UP041, SIM, I001, F401)
+- **Coverage** — 618 tests, 87% coverage; `client.py` at 99%, `protocol.py` at 100%
+- **BOM fix** — stripped UTF-8 BOM from `__init__.py` and `const.py`
+- **Gold audit** — all 19 Gold quality-scale rules verified PASS; BL-007 logging hygiene applied
+
 ## 1.0.0
 
 First stable release. All Silver-tier HA integration quality-scale rules are met except test coverage (BL-023, tracked).
