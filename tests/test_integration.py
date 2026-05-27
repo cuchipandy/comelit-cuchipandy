@@ -107,7 +107,7 @@ async def test_open_door():
         assert config.doors, "No doors found in config"
         door = config.doors[0]
         print(f"Opening door: {door.name}")
-        await open_door(COMELIT_HOST, ICONA_BRIDGE_PORT, COMELIT_TOKEN, config, door)
+        await open_door(COMELIT_HOST, ICONA_BRIDGE_PORT, COMELIT_TOKEN, client, config, door)
     finally:
         await client.disconnect()
 
