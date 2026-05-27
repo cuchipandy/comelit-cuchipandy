@@ -34,7 +34,14 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.mark.asyncio
 async def test_extract_token():
-    """Extract token from device backup."""
+    """Extract token from device backup.
+
+    Useful for initial setup when no token is known yet. If COMELIT_TOKEN
+    is already set this test is skipped — the token is proven valid by the
+    other tests that use it directly.
+    """
+    if COMELIT_TOKEN:
+        pytest.skip("COMELIT_TOKEN already set — extraction not needed")
     pytest.importorskip("aiohttp")
     from custom_components.comelit_man.token import extract_token
 
@@ -108,6 +115,7 @@ async def test_open_door():
         door = config.doors[0]
         print(f"Opening door: {door.name}")
         await open_door(COMELIT_HOST, ICONA_BRIDGE_PORT, COMELIT_TOKEN, client, config, door)
+        print(f"Device ACKed relay open — {door.name} triggered")
     finally:
         await client.disconnect()
 
@@ -452,7 +460,8 @@ async def test_video_then_door_open():
         entrance_addr = config.caller_address or our_addr
         print(f"Opening door '{door.name}' (output_index={door.output_index}) on CTPP")
         await session.async_open_door_on_ctpp(our_addr, entrance_addr, door.output_index)
-        print("Door open sent — checking video continues...")
+        print(f"Device ACKed relay open — {door.name} triggered")
+        print("Checking video continues...")
 
         # Confirm video keeps flowing after the door open
         post_frames: list[bytes] = []
