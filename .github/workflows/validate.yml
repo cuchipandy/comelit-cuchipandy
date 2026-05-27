@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: hacs/action@v22.5.0
+      - uses: hacs/action@22.5.0
         with:
           category: integration
 
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: home-assistant/actions/hassfest@v1.0.0
+      - uses: home-assistant/actions/hassfest@main
 
   lint:
     name: Ruff
@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install dependencies
-        run: pip install mypy aiohttp av pytest-homeassistant-custom-component
+        run: pip install mypy==2.1.0 aiohttp==3.13.3 "av==17.0.1" pytest-homeassistant-custom-component==0.13.316
       - name: Run mypy
         run: mypy custom_components/comelit_man/
 

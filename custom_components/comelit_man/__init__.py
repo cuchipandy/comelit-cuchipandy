@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TOKEN, MAJOR_VERSION, MINOR_VERSION, Platform
+from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TOKEN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
@@ -31,14 +31,11 @@ _DOORBELL_CARD_PATH = str(Path(__file__).parent / "www" / "comelit-doorbell-card
 
 
 async def _register_static_path(hass: HomeAssistant, url: str, path: str) -> None:
-    """Register a static file path, compatible with all HA versions."""
-    if (MAJOR_VERSION, MINOR_VERSION) >= (2024, 7):
-        from homeassistant.components.http import StaticPathConfig  # noqa: PLC0415
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig(url, path, cache_headers=True)]
-        )
-    else:
-        hass.http.register_static_path(url, path)
+    """Register a static file path."""
+    from homeassistant.components.http import StaticPathConfig  # noqa: PLC0415
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(url, path, cache_headers=True)]
+    )
 
 
 async def _init_resource(hass: HomeAssistant, url: str, version: str) -> None:

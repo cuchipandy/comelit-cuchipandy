@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+### Bug fixes
+
+- **`av` version constraint** — relaxed `av>=12.0.0,<13` to `av>=12.0.0`; HA ships `av==16.0.1` which the old upper bound blocked, preventing the integration from loading at all
+
 ## 1.0.1
 
 CI and tooling improvements; no user-facing changes.

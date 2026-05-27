@@ -77,7 +77,7 @@ python -m venv .venv
 
 Integration tests (real device required):
 ```bash
-COMELIT_HOST=192.168.1.111 COMELIT_TOKEN=<token> .venv\Scripts\pytest tests/test_integration.py -v -s
+COMELIT_HOST=192.168.113.12 COMELIT_TOKEN=<token> .venv\Scripts\pytest tests/test_integration.py -v -s
 ```
 
 ---
@@ -241,7 +241,7 @@ Three code paths selected automatically by `coordinator.async_open_door`:
 
 ## Testing Device
 
-- HTTP port: `8080`, ICONA port: `64100`
+- Host: `192.168.113.12`, HTTP port: `8080`, ICONA port: `64100`
 - Credentials: `admin` / `comelit`, token in `.env` (COMELIT_TOKEN)
 - Config: apt_address=SB000006, apt_subaddress=1, 2 doors (Actuator, Entrance Lock), 0 cameras
 

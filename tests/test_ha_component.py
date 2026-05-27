@@ -798,35 +798,15 @@ class TestRemoveEntry:
 
 class TestRegisterStaticPath:
     @pytest.mark.asyncio
-    async def test_new_ha_uses_register_static_paths(self):
+    async def test_uses_async_register_static_paths(self):
         from custom_components.comelit_man import _register_static_path
 
         hass = MagicMock()
         hass.http.async_register_static_paths = AsyncMock()
 
-        with (
-            patch("custom_components.comelit_man.MAJOR_VERSION", 2025),
-            patch("custom_components.comelit_man.MINOR_VERSION", 1),
-        ):
-            await _register_static_path(hass, "/comelit/card.js", "/path/card.js")
+        await _register_static_path(hass, "/comelit/card.js", "/path/card.js")
 
         hass.http.async_register_static_paths.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_old_ha_uses_register_static_path(self):
-        from custom_components.comelit_man import _register_static_path
-
-        hass = MagicMock()
-
-        with (
-            patch("custom_components.comelit_man.MAJOR_VERSION", 2023),
-            patch("custom_components.comelit_man.MINOR_VERSION", 1),
-        ):
-            await _register_static_path(hass, "/comelit/card.js", "/path/card.js")
-
-        hass.http.register_static_path.assert_called_once_with(
-            "/comelit/card.js", "/path/card.js"
-        )
 
 
 # ===========================================================================
