@@ -981,6 +981,19 @@ class TestKeepaliveLoopBody:
             await coord._keepalive_loop()  # must not raise
 
     @pytest.mark.asyncio
+    async def test_keepalive_loop_returns_when_no_config(self):
+        """Loop exits when _config is None but client is still connected — line 506."""
+        coord = _make_coordinator(with_client=True)
+        coord._client.connected = True
+        coord._config = None
+
+        async def fast_sleep(_interval):
+            pass
+
+        with patch("asyncio.sleep", side_effect=fast_sleep):
+            await coord._keepalive_loop()
+
+    @pytest.mark.asyncio
     async def test_keepalive_loop_cancelled_error_propagates(self):
         """CancelledError from wait_for is re-raised by the loop (line 513)."""
         coord = _make_coordinator(with_client=True)

@@ -74,6 +74,28 @@ class TestParseTokenFromArchive:
         with pytest.raises(TokenExtractionError, match="Failed to read backup archive"):
             _parse_token_from_archive(b"not a valid tar.gz")
 
+    def test_parse_token_skips_none_extractfile(self):
+        """Tar member where extractfile returns None (directory) is skipped — line 137.
+
+        tarfile.extractfile() returns None for directory entries.  We give the
+        directory a name that ends with 'users.cfg' so the extraction branch is
+        entered and the `if f is None: continue` guard fires before the real
+        users.cfg file is processed.
+        """
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            # Directory whose name ends with users.cfg — extractfile returns None
+            dir_info = tarfile.TarInfo(name="dir.users.cfg")
+            dir_info.type = tarfile.DIRTYPE
+            tar.addfile(dir_info)
+            # Real file follows
+            content = VALID_USERS_CFG
+            file_info = tarfile.TarInfo(name="config/users.cfg")
+            file_info.size = len(content)
+            tar.addfile(file_info, io.BytesIO(content))
+        token = _parse_token_from_archive(buf.getvalue())
+        assert token == "abcdef1234567890abcdef1234567890"
+
 
 # ---------------------------------------------------------------------------
 # extract_token — HTTP flow with mocked aiohttp
