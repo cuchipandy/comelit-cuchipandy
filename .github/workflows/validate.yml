@@ -41,7 +41,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install dependencies
-        run: pip install mypy aiohttp av pytest-homeassistant-custom-component
+        run: pip install mypy==2.1.0 aiohttp==3.13.3 "av==17.0.1" pytest-homeassistant-custom-component==0.13.316
       - name: Run mypy
         run: mypy custom_components/comelit_man/
 
