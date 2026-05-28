@@ -254,6 +254,7 @@ class TestReset:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("socket_enabled")
 class TestLifecycle:
     @pytest.mark.asyncio
     async def test_start_returns_rtsp_url(self):
