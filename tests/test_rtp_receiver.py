@@ -17,6 +17,27 @@ from custom_components.comelit_man.rtp_receiver import (
 )
 
 
+class TestStartMediaStart:
+    @pytest.mark.asyncio
+    async def test_start_media_creates_decode_task(self):
+        """start_media() creates the decode task — lines 201-202."""
+        receiver = RtpReceiver("127.0.0.1")
+        with patch.object(receiver, "_decode_loop", new_callable=AsyncMock):
+            await receiver.start_media()
+            assert receiver._decode_task is not None
+            receiver._decode_task.cancel()
+            await asyncio.gather(receiver._decode_task, return_exceptions=True)
+
+    @pytest.mark.asyncio
+    async def test_start_returns_port(self):
+        """start() calls start_control + start_media and returns port — lines 206-208."""
+        receiver = RtpReceiver("127.0.0.1")
+        with patch.object(receiver, "start_control", new_callable=AsyncMock, return_value=54321), \
+             patch.object(receiver, "start_media", new_callable=AsyncMock):
+            port = await receiver.start()
+        assert port == 54321
+
+
 class TestRtpReceiverStop:
     @pytest.mark.asyncio
     async def test_stop_awaits_keepalive_task(self):
@@ -63,6 +84,17 @@ class TestRtpReceiverStop:
 
         assert cancelled.is_set(), "decode task was not properly awaited/cancelled"
         assert receiver._decode_task is None
+
+    @pytest.mark.asyncio
+    async def test_stop_closes_transport(self):
+        """stop() closes _transport when one is set — lines 608-609."""
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+        mock_transport = MagicMock()
+        receiver._transport = mock_transport
+        await receiver.stop()
+        mock_transport.close.assert_called_once()
+        assert receiver._transport is None
 
     @pytest.mark.asyncio
     async def test_stop_sets_running_false(self):
@@ -153,6 +185,151 @@ class TestDecodeLoopRobustness:
 
         assert parse_call_count >= 3
 
+    @pytest.mark.asyncio
+    async def test_decode_loop_av_import_error(self):
+        """ImportError from av causes loop to log and return — lines 472-477."""
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+
+        with patch.dict(sys.modules, {"av": None}):
+            await receiver._decode_loop()
+
+        # Completed without propagating ImportError; no frames decoded
+        assert receiver._latest_frame is None
+
+    @pytest.mark.asyncio
+    async def test_decode_loop_produces_frames(self):
+        """Successful frame decode updates _latest_frame — lines 499-504, 538-542."""
+        import io as _io
+        import logging
+
+        FAKE_JPEG = b"\xff\xd8\xff\xe0fake_jpeg\xff\xd9"
+
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+
+        class _FakeImage:
+            def save(self, buf, **kwargs):
+                buf.write(FAKE_JPEG)
+
+        class _FakeFrame:
+            width = 640
+            height = 480
+
+            def to_image(self):
+                return _FakeImage()
+
+        fake_av = self._make_fake_av()
+
+        class _FrameCodecCtx:
+            def parse(self, data):
+                return [MagicMock()]
+
+            def decode(self, pkt):
+                receiver._running = False  # stop after first frame
+                return [_FakeFrame()]
+
+        fake_av.CodecContext.create = lambda *a, **kw: _FrameCodecCtx()
+
+        await receiver._nal_queue.put((0, b"\x00\x00\x00\x01\x65" + b"\x00" * 20))
+
+        with patch.dict(sys.modules, {"av": fake_av, "av.error": fake_av.error}):
+            # Enable debug so the verbose timing branch (lines 541-542) also runs
+            import logging
+            logger = logging.getLogger("custom_components.comelit_man.rtp_receiver")
+            old_level = logger.level
+            logger.setLevel(logging.DEBUG)
+            try:
+                await receiver._decode_loop()
+            finally:
+                logger.setLevel(old_level)
+
+        assert receiver._latest_frame == FAKE_JPEG
+        assert receiver._frame_event.is_set()
+
+    @pytest.mark.asyncio
+    async def test_decode_loop_timeout_no_nal(self):
+        """TimeoutError waiting for NAL logs and continues — lines 520-526.
+
+        Enable DEBUG so the verbose branch (line 522) also executes.
+        """
+        import contextlib
+        import logging
+
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+
+        fake_av = self._make_fake_av()
+        iteration = 0
+
+        async def mock_wait_for(coro, timeout):
+            nonlocal iteration
+            with contextlib.suppress(AttributeError):
+                coro.close()
+            iteration += 1
+            if iteration >= 2:
+                receiver._running = False
+            raise TimeoutError()
+
+        logger = logging.getLogger("custom_components.comelit_man.rtp_receiver")
+        old_level = logger.level
+        logger.setLevel(logging.DEBUG)
+        try:
+            with patch.dict(sys.modules, {"av": fake_av, "av.error": fake_av.error}):
+                with patch("asyncio.wait_for", side_effect=mock_wait_for):
+                    await receiver._decode_loop()
+        finally:
+            logger.setLevel(old_level)
+
+        assert iteration >= 2
+
+    @pytest.mark.asyncio
+    async def test_decode_loop_outer_exception_caught(self):
+        """Non-CancelledError from wait_for propagates to outer except Exception — lines 563-564.
+
+        asyncio.wait_for is in an inner try that only catches TimeoutError.
+        A ValueError escapes all inner handlers and is caught by the outer
+        `except Exception:` at line 563.
+        """
+        import contextlib
+
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+
+        fake_av = self._make_fake_av()
+
+        async def raise_value_error(coro, timeout):
+            with contextlib.suppress(AttributeError):
+                coro.close()
+            raise ValueError("unexpected queue error")
+
+        with patch.dict(sys.modules, {"av": fake_av, "av.error": fake_av.error}):
+            with patch("asyncio.wait_for", side_effect=raise_value_error):
+                await receiver._decode_loop()
+
+        # Completed normally — ValueError was swallowed by lines 563-564
+
+    @pytest.mark.asyncio
+    async def test_decode_loop_cancelled_caught_by_outer_try(self):
+        """CancelledError propagates past inner handlers to outer except — lines 561-562."""
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+
+        fake_av = self._make_fake_av()
+
+        with patch.dict(sys.modules, {"av": fake_av, "av.error": fake_av.error}):
+            task = asyncio.create_task(receiver._decode_loop())
+            # Wait for codec init to complete and loop to reach nal_queue.get
+            await asyncio.sleep(0.2)
+            task.cancel()
+            results = await asyncio.gather(task, return_exceptions=True)
+
+        # CancelledError was caught by 'except asyncio.CancelledError: pass'
+        # so the task completes normally (not cancelled)
+        assert task.done()
+        assert not task.cancelled()
+        assert results == [None]
+
 
 # ---------------------------------------------------------------------------
 # _build_control_packet
@@ -237,6 +414,42 @@ class TestReceiveTcpRtp:
         receiver.receive_tcp_rtp(pkt)
         assert receiver._media_packet_count == 1
 
+    def test_rtp_forwarded_to_rtp_queue(self):
+        """With rtp_queue attached, packet is forwarded there — lines 293-299."""
+        receiver = RtpReceiver("127.0.0.1")
+        rtp_q: asyncio.Queue[bytes] = asyncio.Queue()
+        receiver.attach_rtsp_queues(asyncio.Queue(), asyncio.Queue(), rtp_q)
+
+        nal = b"\x67" + b"\x00" * 10
+        pkt = _make_rtp_packet(nal)
+        receiver.receive_tcp_rtp(pkt)
+
+        assert not rtp_q.empty()
+        assert receiver._first_video_nal_event.is_set()
+
+    def test_rtp_queue_full_increments_drop_counter(self):
+        """QueueFull on rtp_queue increments rtsp_nal_drops — line 296."""
+        receiver = RtpReceiver("127.0.0.1")
+        rtp_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=1)
+        rtp_q.put_nowait(b"already_full")
+        receiver.attach_rtsp_queues(asyncio.Queue(), asyncio.Queue(), rtp_q)
+
+        nal = b"\x67" + b"\x00" * 10
+        pkt = _make_rtp_packet(nal)
+        receiver.receive_tcp_rtp(pkt)
+
+        assert receiver._rtsp_nal_drops == 1
+
+    def test_empty_nal_data_returns_early(self):
+        """RTP with no payload after header returns without queuing — line 309."""
+        receiver = RtpReceiver("127.0.0.1")
+        # 12-byte header only, PT=96 (video, not audio), no payload
+        pkt = bytes([0x80, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+                     0x00, 0x00, 0x00, 0x01])
+        receiver.receive_tcp_rtp(pkt)
+        assert receiver._media_packet_count == 1
+        assert receiver._nal_queue.empty()
+
 
 class TestSetMediaReqId:
     def test_set_media_req_id(self):
@@ -276,6 +489,15 @@ class TestProcessRtp:
         rtp = _make_rtp_packet(nal_payload)
         receiver._process_rtp(rtp)
         assert not receiver._nal_queue.empty()
+
+    def test_idr_single_nal_increments_idr_count(self):
+        """NAL type 5 (IDR) as single unit calls _log_idr_arrival — line 349."""
+        receiver = RtpReceiver("127.0.0.1")
+        nal_payload = b"\x65" + b"\x00" * 8  # type=5 (IDR)
+        rtp = _make_rtp_packet(nal_payload)
+        receiver._process_rtp(rtp)
+        assert not receiver._nal_queue.empty()
+        assert receiver._idr_count == 1
 
     def test_invalid_rtp_version_ignored(self):
         """Packets with RTP version != 2 are discarded."""
@@ -514,7 +736,37 @@ class TestStartControl:
         assert len(sendto_calls) == 2
 
 
+class TestSendControlNoTransport:
+    def test_send_control_with_no_transport_is_noop(self):
+        """_send_control returns early when _transport is None — line 213."""
+        receiver = RtpReceiver("127.0.0.1")
+        assert receiver._transport is None
+        receiver._send_control()  # must not raise
+
+
 class TestKeepaliveLoop:
+    @pytest.mark.asyncio
+    async def test_keepalive_cancelled_error_swallowed(self):
+        """CancelledError inside _keepalive_loop is caught by the try/except — lines 231-232.
+
+        Inject CancelledError through a mocked sleep so we can directly call the
+        coroutine and confirm it returns normally (no propagation).
+        """
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+        mock_transport = MagicMock()
+        mock_transport.sendto = MagicMock()
+        receiver._transport = mock_transport
+
+        async def raise_cancelled(_t: float) -> None:
+            raise asyncio.CancelledError()
+
+        with patch("asyncio.sleep", side_effect=raise_cancelled):
+            # CancelledError is caught (lines 231-232) and the coroutine returns normally
+            await receiver._keepalive_loop()
+
+        # If we reach here without exception, lines 231-232 executed correctly
+
     @pytest.mark.asyncio
     async def test_keepalive_sends_packets(self):
         """Keepalive loop sends a control packet on each iteration."""
@@ -720,6 +972,18 @@ class TestAudioRouting:
         receiver._process_rtp(rtp)  # Must not raise
         assert receiver._audio_packet_count == 1
 
+    def test_audio_debug_log_for_first_packets(self, caplog):
+        """Debug log fires for first ≤3 audio packets when DEBUG enabled — line 360."""
+        import logging
+        receiver = RtpReceiver("127.0.0.1")
+        audio_q: asyncio.Queue[bytes] = asyncio.Queue()
+        receiver.attach_rtsp_queues(asyncio.Queue(), audio_q)
+
+        with caplog.at_level(logging.DEBUG, logger="custom_components.comelit_man.rtp_receiver"):
+            receiver._process_rtp(_make_audio_rtp(8, b"\xd5" * 160))
+
+        assert any("Audio RTP" in r.message for r in caplog.records)
+
     def test_audio_queue_full_drops_silently(self):
         """Audio payload is silently dropped when RTSP audio queue is full."""
         receiver = RtpReceiver("127.0.0.1")
@@ -757,6 +1021,58 @@ class TestAudioRouting:
 
         assert audio_q.empty()
         assert not receiver._nal_queue.empty()
+
+
+# ---------------------------------------------------------------------------
+# _maybe_log_drops — rate limiting
+# ---------------------------------------------------------------------------
+
+
+class TestMaybeLogDrops:
+    def test_rate_limited_returns_early(self):
+        """Second call within 5s returns early — line 421."""
+        import time
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._rtsp_nal_drops = 5
+        # Simulate a very recent last-log time so the rate limit fires
+        receiver._last_drop_log_mono = time.monotonic()
+        receiver._maybe_log_drops()  # must not raise; returns early without logging
+
+
+# ---------------------------------------------------------------------------
+# wait_for_first_video
+# ---------------------------------------------------------------------------
+
+
+class TestWaitForFirstVideo:
+    @pytest.mark.asyncio
+    async def test_returns_true_when_event_already_set(self):
+        """Event pre-set → returns True immediately — lines 438-442."""
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._first_video_nal_event.set()
+        result = await receiver.wait_for_first_video(timeout=1.0)
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_on_timeout(self):
+        """Event never set → returns False after timeout — lines 443-444."""
+        receiver = RtpReceiver("127.0.0.1")
+        result = await receiver.wait_for_first_video(timeout=0.01)
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Properties
+# ---------------------------------------------------------------------------
+
+
+class TestProperties:
+    def test_udp_media_packet_count_property(self):
+        """udp_media_packet_count returns _udp_media_packet_count — line 449."""
+        receiver = RtpReceiver("127.0.0.1")
+        assert receiver.udp_media_packet_count == 0
+        receiver._udp_media_packet_count = 7
+        assert receiver.udp_media_packet_count == 7
 
 
 # ---------------------------------------------------------------------------

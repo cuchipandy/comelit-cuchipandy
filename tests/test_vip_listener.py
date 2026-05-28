@@ -542,6 +542,9 @@ class TestListenLoop:
         listener._running = True
 
         async def raise_cancelled(*args, **kwargs):
+            for arg in args:
+                if asyncio.iscoroutine(arg):
+                    arg.close()
             raise asyncio.CancelledError
 
         with patch(

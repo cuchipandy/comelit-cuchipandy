@@ -1,9 +1,9 @@
 # Comelit Man — Quality Audit
 
-**Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20; Bundle A+B applied 2026-05-20; Bundle CDEF applied 2026-05-20; BL-006/010/036 applied 2026-05-20; Silver row sweep applied 2026-05-20; Gold row sweep + BL-007 applied 2026-05-21; v1.0.1 release + header sync 2026-05-27
-**Version at audit:** 1.0.1
-**Tier claim (CLAUDE.md):** Bronze EFFECTIVE PASS; Silver NOT YET (BL-023, 87% vs 95%); Gold MET; Platinum MET
-**Tier verdict (audited):** Bronze PASS; Silver NOT YET (1 FAIL remaining — test-coverage BL-023); **Gold MET** (19 PASS / 0 FAIL / 0 PARTIAL / 2 N/A); Platinum MET; Beyond A-D 13/14 PASS (B still PARTIAL: video_call.py:483 bare asyncio.create_task, LOCKED); Beyond D 2/2 PASS (BL-007 done); Beyond E 8 PASS / 0 PARTIAL / 14 N/A of 22 ADRs; Beyond F 4 PASS / 0 FAIL / 1 accepted-FAIL; Beyond G 4 PASS / 0 PARTIAL / 1 N/A; Beyond H 2 PASS
+**Last full sweep:** Sweep 5 (final triage) — 2026-05-06; Phase 1 fixes applied 2026-05-20; Phase 2 bundle applied 2026-05-20; Bundle A+B applied 2026-05-20; Bundle CDEF applied 2026-05-20; BL-006/010/036 applied 2026-05-20; Silver row sweep applied 2026-05-20; Gold row sweep + BL-007 applied 2026-05-21; v1.0.1 release + header sync 2026-05-27; BL-023 Step 1 (rtp_receiver 100%, +52 stmts) 2026-05-27; BL-023 Step 2 plan recorded 2026-05-27; BL-023 Track B DONE (rtsp_server.py 100%, 98% total, 759 tests, 0 coroutine warnings) 2026-05-27; video_call.py Groups A-G + tcp_video_loop happy path done 2026-05-28 (94% video_call.py, 18 stmts Group H in start() deferred, 775 tests); video_call.py Group H DONE 2026-05-28 (100% video_call.py, 100% total — 3040/3040 stmts, 783 tests)
+**Version at audit:** 1.0.2
+**Tier claim (CLAUDE.md):** Bronze EFFECTIVE PASS; Silver MET (BL-023 DONE, 98% total); Gold MET; Platinum MET
+**Tier verdict (audited):** Bronze PASS; **Silver MET** (10 PASS / 0 FAIL — test-coverage BL-023 closed 2026-05-27); **Gold MET** (19 PASS / 0 FAIL / 0 PARTIAL / 2 N/A); Platinum MET; Beyond A-D 13/14 PASS (B still PARTIAL: video_call.py:483 bare asyncio.create_task, LOCKED); Beyond D 2/2 PASS (BL-007 done); Beyond E 8 PASS / 0 PARTIAL / 14 N/A of 22 ADRs; Beyond F 4 PASS / 0 FAIL / 1 accepted-FAIL; Beyond G 4 PASS / 0 PARTIAL / 1 N/A; Beyond H 2 PASS
 **Stale rows:** 0 (sum of Stale columns across all dashboards). When this becomes ≥1, schedule re-verification of the affected rows.
 **Next review due:** when all sweeps land OR +90 days from last full sweep, whichever first
 **Freshness rule:** any row is `STALE` if `Verified` date > 90 days old OR older than the current `manifest.json` minor version (`1.0.x`).
@@ -36,7 +36,7 @@ Verdict is `MET` only when every rule in the tier is `PASS` or `N/A`.
 | Tier | Pass | Fail | Partial | N/A | Stale | Unverified | Total | Verdict |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
 | Bronze   | 15 | 1 | 0 | 2 | 0 | 0 | 18 | EFFECTIVE PASS — `brands` FAIL accepted (won't fix); all other rules PASS |
-| Silver   | 8 | 1 | 0 | 1 | 0 | 0 | 10 | NOT YET — test-coverage (BL-023) is the only remaining FAIL |
+| Silver   | 9 | 0 | 0 | 1 | 0 | 0 | 10 | MET — test-coverage BL-023 closed 2026-05-27 (98% total, rtsp_server.py 100%) |
 | Gold     | 19 | 0 | 0 | 2 | 0 | 0 | 21 | MET — all 19 applicable rules PASS; 2 N/A (dynamic-devices, stale-devices) |
 | Platinum | 3 |  0 | 0 | 0 | 0 | 0 |  3 | MET |
 
@@ -93,7 +93,7 @@ Rule URL pattern: `https://developers.home-assistant.io/docs/core/integration-qu
 | log-when-unavailable | PASS | `coordinator.py` uses `_connection_lost: bool` flag (line 82) for edge-detection. `_on_client_disconnect` (line 597–599) and `_async_update_data` (line 613–615) both check `if not self._connection_lost` before warning — the disconnect warning fires exactly once per event. `_connection_lost = False` reset at line 246 on successful reconnect, so the reconnect info log also fires exactly once. (BL-022 applied 2026-05-20 in Bundle A+B.) | 2026-05-20 | BL-022 Done |
 | parallel-updates | PASS | `PARALLEL_UPDATES = 0` declared at module level in `button.py:20`, `camera.py:23`, `event.py:19`. All three platform files covered. (BL-005 applied 2026-05-20 in Phase 1.) | 2026-05-20 | BL-005 Done |
 | reauthentication-flow | PASS | `config_flow.py:178` `async_step_reauth` + `config_flow.py:184` `async_step_reauth_confirm` implemented (BL-004 applied 2026-05-20 in Bundle A+B). Validates new token/password against device, then calls `async_update_reload_and_abort`. Strings at `strings.json:72–83` and `translations/en.json:72–83` provide translated UI. | 2026-05-20 | BL-004 Done |
-| test-coverage | FAIL | Rule requires >95% coverage. Current state (BL-023 partial): 618 tests pass, 87% total coverage; CI gate raised to `--cov-fail-under=85`. Easy-path gains applied 2026-05-21 (test_coverage_extras.py: client.py 81%→99%, protocol.py 93%→100%, token.py 96%→99%, rtp_receiver._UdpProtocol covered, video_call.py properties covered). Remaining gap: `rtsp_server.py` 44% (280 missed) dominates; `video_call.py` 83% (55 missed), `rtp_receiver.py` 85% (49 missed). Reaching 95% requires RTSP handshake simulation (~130 more stmts from rtsp_server.py). | 2026-05-21 | BL-023 |
+| test-coverage | PASS | BL-023 DONE (2026-05-27). 759 tests pass, 98% total (3040/3040 stmts measured, 55 missed in video_call.py which is LOCKED). `rtsp_server.py` raised from 44% to 100% (Track B: loop tests + handle_client tests added). CI gate at `--cov-fail-under=85` (still enforced; actual 98% far exceeds Silver ≥95% threshold). All other modules at 100% except `video_call.py` (83%, 55 missed, LOCKED — accepted). | 2026-05-27 | BL-023 Done |
 
 ## Gold Rules
 
@@ -310,6 +310,40 @@ Live source: `memory/comelit_man_backlog.md`. This snapshot is rebuilt at the en
 
 ---
 
+## BL-023 Step 2 — rtsp_server.py Coverage Checklist
+
+**Goal:** raise total coverage from 89% (335 missed) to ≥95% (≤152 missed).  
+**Baseline:** `rtsp_server.py` 44% (280 missed); `video_call.py` 83% (55 missed, LOCKED).  
+**Coverage math:** Track A alone → ~235 missed (~92%). Track A + Track B → ~50–100 missed (~96–98%).  
+Covering all 280 RTSP statements leaves only 55 missed (98%) — well clear of the Silver target.
+
+### Track A — Direct unit tests (no TCP client required)
+
+| # | Task | Lines | Status |
+|---|---|---|---|
+| A-1 | `mark_ready`, `mark_not_ready`, `disconnect_clients`, `reset` rtp_queue drain | 244, 248, 260-266, 287-289 | ☐ |
+| A-2 | `_send()`, `_wait_for_teardown()`, UDP path in `_broadcast_rtp()` | 526, 557-563, 676-680 | ☐ |
+| A-3 | `_prime_client_with_parameter_sets()`, `_send_initial_sr_to_client()` | 588-604, 618-640 | ☐ |
+| A-4 | `_translate_video_ts()` — first call, normal advance, backward jump | 753-780 | ☐ |
+| A-5 | `_drain_nal_queue_fallback()`, `_broadcast_rtcp()`, `_build_rtcp_sr()`, `_ntp_now()` | 784-803, 1025-1057, 1080-1103 | ☐ |
+
+### Track B — Async loop and TCP protocol tests
+
+| # | Task | Lines | Status |
+|---|---|---|---|
+| B-1 | `_handle_client()` via real TCP: OPTIONS→DESCRIBE→SETUP→PLAY→TEARDOWN + 405 + 503 + disconnect error paths | 347-487 | ☐ |
+| B-2 | `_video_rtp_passthrough_loop()`: happy path, SPS/PPS cache, timeout→fallback, short/empty packet, CancelledError, exception | 697-749 | ☐ |
+| B-3 | `_video_feed_loop()` + `_audio_feed_loop()`: happy path, start-code strip, timeout, CancelledError, exception | 816-891, 940-963 | ☐ |
+| B-4 | `_rtcp_sr_loop()`: pre-loop wait, active client SR broadcast, no-client branch, CancelledError, exception | 983, 986-1014 | ☐ |
+
+### Completion gate
+
+| Step | Check | Status |
+|---|---|---|
+| Done | Run full suite, confirm ≥95% total coverage; update Silver `test-coverage` row to PASS; update BL-023 in backlog to DONE | ☐ |
+
+---
+
 ## Audit Change Log
 
 | Date | Sweep | Change |
@@ -323,6 +357,7 @@ Live source: `memory/comelit_man_backlog.md`. This snapshot is rebuilt at the en
 | 2026-05-06 | 4b | Beyond-Scale dimension E (ADR walk) audited end-to-end. 22 ADRs reviewed. 4 PASS / 0 FAIL / 2 PARTIAL / 16 N/A. **PASS:** 0005 (code formatting), 0008 (code owners), 0010 (config-flow only), 0022 (quality scale). **PARTIAL:** 0009 (translation gaps already tracked in BL-025/026/027), 0020 (Python version mismatch — README says HA 2026.1+ but manifest has no min HA version, CI matrix tests 3.11/3.12 unnecessarily). 16 ADRs are core-distribution / GPIO / YAML — N/A for a config-flow custom integration. New backlog item BL-033. No source files modified. |
 | 2026-05-06 | 4c | Beyond-Scale F (HACS submission) + G (Automated checks) audited. F: 2 PASS / 2 eff. FAIL / 1 accepted-FAIL. G: 3 PASS / 1 PARTIAL / 1 N/A. **F findings:** `hacs.json` valid (PASS), repo topics absent (FAIL → BL-035), no GitHub releases (FAIL → BL-034 — `gh api releases` returned `[]` despite manifest.json at 0.1.4.3 + CHANGELOG.md present), brands accepted-FAIL, no bundled zip (PASS). **G findings:** all required CI jobs (hassfest, hacs/action, ruff) present and run on every push/PR; pytest matrix is too wide (BL-033 already filed); brands lint N/A given the won't-fix decision. **Cosmetic note:** GitHub labels the LICENSE as "Other" despite README saying Apache 2.0 and the file content matching — likely missing the canonical first-line marker. Not filed as a backlog item but noted here. ADR-0011 note added to BL-030 body. New backlog items BL-034, BL-035. BL-014 *decomposed* — its remaining scope is fully covered by BL-034/BL-035 plus the accepted-FAIL brand portion. No source files modified. |
 | 2026-05-06 | 4d | Beyond-Scale H (LOCKED-file read-only audit) audited end-to-end. **`door.py` PARTIAL** — 5 findings: latent NameError in finally (BL-036, Locked), parameter shadowing (style), auth-error reauth mapping (BL-038), CLAUDE.md drift on function names (BL-037, not Locked), logging clean. **`video_call.py` PASS with notes** — 859 lines, mature PCAP-faithful implementation: per-magic-number `# PCAP-verified:` comments, `_ctpp_lock` serializes counter mutation, `_cleanup` cancels tracked tasks with 2 s timeout, channel enumeration prevents leaks. One untracked fire-and-forget at `video_call.py:483` already covered by BL-032. **No LOCKED files modified.** New backlog items BL-036 (Locked), BL-037, BL-038. |
+| 2026-05-27 | — | BL-023 Step 2 plan recorded. Step 1 complete: 89% total (335 missed), 639 tests. rtsp_server.py dominates remaining gap (280 missed, 44%). Step 2 Track A: 5 unit-test groups (~100 stmts, no TCP). Track B: 4 async/TCP groups (~130-150 stmts). Checklist added to this file. Target: ≥95% (≤152 missed total). |
 | 2026-05-27 | — | Header sync for v1.0.1: version bumped 1.0.0→1.0.1; tier claim updated to match current CLAUDE.md; freshness rule minor version corrected (0.1.x→1.0.x); Beyond-F releases row updated to reference v1.0.1 as Latest. No rule statuses changed. |
 | 2026-05-21 | 7 | Gold row sweep. Verified all 14 stale Gold rows against code. All Gold FAILs/PARTIALs resolved: `diagnostics` FAIL→PASS (diagnostics.py exists); `discovery`/`discovery-update-info` FAIL/N/A→PASS (DHCP in manifest + async_step_dhcp with MAC unique_id + IP-update abort); all 4 docs FAIL/PARTIAL→PASS (README data-update/known-limitations/supported-devices/troubleshooting sections present); `entity-category`/`entity-device-class`/`entity-disabled-by-default` PARTIAL/FAIL→PASS (EntityCategory.DIAGNOSTIC, EventDeviceClass.DOORBELL, enabled_default=False on video buttons); `entity-translations`/`exception-translations`/`icon-translations` FAIL→PASS (all _attr_translation_key set, exceptions.py inherits HomeAssistantError, icons.json present); `repair-issues` FAIL→PASS (repairs.py exists). Gold tier summary: 19P/0F/0P/2NA → **GOLD MET**. Beyond-scale updates: B `async_remove_entry` FAIL→PASS; F topics+releases FAIL→PASS; G pytest matrix PARTIAL→PASS; E ADR-0009/0011/0020 PARTIAL/N/A→PASS. BL-007 implemented: `coordinator.py` "CALL_END received" and "VIP event listener restarted" downgraded from info to debug (device-driven events, not user actions). D logging hygiene PARTIAL→PASS. |
 | 2026-05-20 | 6 | Silver row sweep at v1.0.0. Updated 5 stale Silver rows to match code state: `entity-unavailable` PARTIAL→PASS (BL-021: ComelitEntity base class applied), `log-when-unavailable` PARTIAL→PASS (BL-022: `_connection_lost` edge-detection applied), `parallel-updates` FAIL→PASS (BL-005: PARALLEL_UPDATES=0 in all platforms), `reauthentication-flow` FAIL→PASS (BL-004: async_step_reauth added), `test-coverage` evidence updated to reflect 85%/570-test baseline. Updated Gold `reconfiguration-flow` FAIL→PASS (BL-009: async_step_reconfigure added). Silver tier summary: 4→8 PASS, 3→0 FAIL, 2→0 PARTIAL (test-coverage is sole remaining Silver FAIL). Gold tier summary: 4→5 PASS, 10→9 FAIL. manifest.json bumped to 1.0.0. |

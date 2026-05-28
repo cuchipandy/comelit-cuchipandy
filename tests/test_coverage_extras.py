@@ -28,6 +28,18 @@ from custom_components.comelit_man.protocol import (
 # ---------------------------------------------------------------------------
 
 
+def _raises_timeout(*args: object, **kwargs: object) -> None:
+    """Raise TimeoutError after closing any coroutine arguments.
+
+    Use as side_effect when patching asyncio.wait_for to avoid
+    RuntimeWarning: coroutine '...' was never awaited.
+    """
+    for arg in args:
+        if asyncio.iscoroutine(arg):
+            arg.close()
+    raise TimeoutError
+
+
 class _FakeWriter:
     def __init__(self):
         self.data = bytearray()
@@ -188,7 +200,7 @@ class TestConnectErrors:
         client = IconaBridgeClient("127.0.0.1", 64100)
         with patch(
             "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=TimeoutError,
+            side_effect=_raises_timeout,
         ):
             with pytest.raises(ConnectionComelitError):
                 await client.connect()
@@ -344,7 +356,7 @@ class TestOpenChannelTimeout:
 
         with patch(
             "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=TimeoutError,
+            side_effect=_raises_timeout,
         ):
             with pytest.raises(ProtocolError, match="Timeout"):
                 await client.open_channel("CH", ChannelType.UAUT)
@@ -439,11 +451,20 @@ class TestDispatchEdgeCases:
         client._dispatch(999, binary_data)  # should not raise
 
     def test_binary_response_queued_on_channel(self):
-        """Binary response queued on matching channel — line 305."""
+        """Binary response queued on matching channel — line 307 (binary branch)."""
         client = _connected_client()
         ch = _open_channel(client, "CH", ch_id=10)
         binary_body = b"\x80\x60\x00\x00"
         client._dispatch(10, binary_body)
+        assert not ch.response_queue.empty()
+
+    def test_json_response_queued_on_channel(self):
+        """JSON response queued on matching channel — line 305 (JSON branch)."""
+        import json
+        client = _connected_client()
+        ch = _open_channel(client, "CH", ch_id=55)
+        json_body = json.dumps({"response-code": 200}).encode()
+        client._dispatch(55, json_body)
         assert not ch.response_queue.empty()
 
     def test_device_initiated_open_parse_error_fallback(self):
