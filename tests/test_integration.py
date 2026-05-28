@@ -1,20 +1,14 @@
 """Real device integration tests.
 
-Run with: COMELIT_HOST=192.168.1.XX COMELIT_TOKEN=<token> pytest tests/test_integration.py -v
+Run with: COMELIT_HOST=192.168.1.XX COMELIT_TOKEN=<token> pytest tests/test_integration.py -v -s
 Set COMELIT_PASSWORD to auto-extract token via HTTP backup.
 
-Video tests require:
+Video/door tests require:
   1. The intercom screen to be awake (tap it — WiFi drops when idle).
   2. The HA comelit_man integration to be STOPPED or DISABLED. The device
      only accepts one CTPP session at a time; if HA is running with the
      integration active, it holds CTPP and the video tests will fail with
-     ConnectionResetError during call initiation. Disable in HA → Settings
-     → Devices & Services → Comelit Man, run the tests, then re-enable.
-
-Gate flags:
-  COMELIT_TEST_VIDEO=1   — run video pipeline tests (starts a real call)
-  COMELIT_TEST_DOOR=1    — run door-open tests (actually triggers the relay)
-  COMELIT_TEST_PUSH=1    — run 30-second push listener test
+     ConnectionResetError during call initiation.
 """
 
 import asyncio
@@ -95,8 +89,6 @@ async def test_open_door():
     """Open the first door (CAREFUL: this actually opens a door!)."""
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_DOOR"):
-        pytest.skip("Set COMELIT_TEST_DOOR=1 to actually open a door")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -123,8 +115,6 @@ async def test_push_listener():
     """Listen for push notifications for 30 seconds."""
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_PUSH"):
-        pytest.skip("Set COMELIT_TEST_PUSH=1 to listen for push events")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -292,8 +282,6 @@ async def test_start_video_call():
     """
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_VIDEO"):
-        pytest.skip("Set COMELIT_TEST_VIDEO=1 to run video tests")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -333,8 +321,6 @@ async def test_rtsp_server_streams_video():
     """
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_VIDEO"):
-        pytest.skip("Set COMELIT_TEST_VIDEO=1 to run video tests")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -408,10 +394,6 @@ async def test_video_then_door_open():
     """
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_VIDEO"):
-        pytest.skip("Set COMELIT_TEST_VIDEO=1 to run video tests")
-    if not os.environ.get("COMELIT_TEST_DOOR"):
-        pytest.skip("Set COMELIT_TEST_DOOR=1 to actually open a door")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
