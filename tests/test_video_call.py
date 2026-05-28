@@ -1038,3 +1038,309 @@ class TestCleanupCtppSkip:
         assert "CTPP" not in removed
         assert "CSPB" not in removed
         assert "UDPM" in removed
+
+
+# ---------------------------------------------------------------------------
+# Group H — start() branches
+# ---------------------------------------------------------------------------
+
+class TestStart:
+    """Tests for VideoCallSession.start() — remaining uncovered branches.
+
+    Coverage targets (18 stmts):
+      line 225   — caller_address=None warning
+      lines 241-251 — reuse existing CTPP (owns_ctpp=False, skip ctpp_init)
+      lines 247-248 — open CSPB when CTPP reused but CSPB missing
+      lines 308-309 — reuse external RTSP server (reset instead of create)
+      lines 415-417 — device RTPC timeout → VideoCallError
+      lines 468-470 — wait_for_first_video=False → no-media warning
+      line 502     — auto_timeout=True creates timeout task
+      lines 510-512 — outer except wraps any error as VideoCallError
+    """
+
+    @staticmethod
+    def _make_mocks(
+        *,
+        caller_address: str | None = "SB100001",
+        ctpp_exists: bool = False,
+        cspb_exists: bool = True,
+        device_rtpc_timeout: bool = False,
+        no_media: bool = False,
+    ):
+        """Return (config, mock_client, mock_receiver, mock_rtsp) for start()."""
+        import struct
+
+        config = MagicMock()
+        config.apt_address = "SB000006"
+        config.apt_subaddress = "1"
+        config.caller_address = caller_address
+
+        ctpp_ch = MagicMock()
+        ctpp_ch.server_channel_id = 0x0010
+        cspb_ch = MagicMock() if cspb_exists else None
+
+        def get_channel(name):
+            if name == "CTPP":
+                return ctpp_ch if ctpp_exists else None
+            if name == "CSPB":
+                return cspb_ch
+            return None
+
+        channel_id_counter = [0x0011]
+
+        async def mock_open_channel(
+            name, channel_type, extra_data=None, trailing_byte=0, wire_name=None
+        ):
+            ch = MagicMock()
+            ch.server_channel_id = channel_id_counter[0]
+            channel_id_counter[0] += 1
+            ch.open_response_body = b"\x00" * 20
+            return ch
+
+        placeholder = MagicMock()
+        placeholder.open_event = asyncio.Event()
+        if not device_rtpc_timeout:
+            placeholder.open_event.set()
+        placeholder.server_channel_id = 0xAAAA
+
+        # Reads consumed by start() in order:
+        # 1. call-init ACK (resp1, line 336)
+        # 2. codec exchange until 0x0002 (line 353)
+        # 3. _ack_device_rtpc_link (0x000A, line 423)
+        # 4+ None → _ctpp_monitor_loop exits
+        responses = [
+            b"\x00" * 10,
+            struct.pack("<H", 0x1840) + struct.pack("<I", 0) + struct.pack(">H", 0x0002),
+            struct.pack("<H", 0x1840) + struct.pack("<I", 0) + struct.pack(">H", 0x000A),
+        ]
+        resp_iter = iter(responses)
+
+        async def mock_read(channel, timeout=2.0):
+            return next(resp_iter, None)
+
+        mock_client = MagicMock()
+        mock_client.host = "192.168.1.1"
+        mock_client.port = 64100
+        mock_client.get_channel = MagicMock(side_effect=get_channel)
+        mock_client.open_channel = mock_open_channel
+        mock_client.send_binary = AsyncMock()
+        mock_client.read_response = mock_read
+        mock_client.register_placeholder_channel = MagicMock(return_value=placeholder)
+
+        mock_receiver = MagicMock()
+        mock_receiver.running = False  # _tcp_video_loop exits immediately
+        mock_receiver.start_control = AsyncMock()
+        mock_receiver.start_media = AsyncMock()
+        mock_receiver.stop = AsyncMock()
+        mock_receiver.wait_for_first_video = AsyncMock(return_value=not no_media)
+        mock_receiver.udp_media_packet_count = 0
+        mock_receiver.tcp_media_packet_count = 0
+
+        mock_rtsp = MagicMock()
+        mock_rtsp.start = AsyncMock()
+        mock_rtsp.stop = AsyncMock()
+        mock_rtsp.nal_queue = asyncio.Queue()
+        mock_rtsp.audio_queue = asyncio.Queue()
+        mock_rtsp.rtp_queue = asyncio.Queue()
+
+        return config, mock_client, mock_receiver, mock_rtsp
+
+    def _make_session(
+        self, config, mock_client, *, auto_timeout: bool = False, rtsp_server=None
+    ) -> "VideoCallSession":
+        """Build a VideoCallSession from mocks, bypassing __init__."""
+        session = VideoCallSession.__new__(VideoCallSession)
+        session._client = mock_client
+        session._config = config
+        session._auto_timeout = auto_timeout
+        session._external_rtsp = rtsp_server is not None
+        session._rtsp_server = rtsp_server
+        session._active = False
+        session._owns_ctpp = False
+        session._timeout_task = None
+        session._tcp_task = None
+        session._ctpp_task = None
+        session._rtp_receiver = None
+        session._call_counter = 0
+        session._ctpp_lock = asyncio.Lock()
+        session._on_call_end = None
+        session._on_timeout = None
+        return session
+
+    @pytest.mark.asyncio
+    async def test_caller_address_none_uses_our_addr_as_entrance(self):
+        """When caller_address is None a warning is logged and start() still succeeds.
+
+        Coverage: line 225 (_LOGGER.warning when entrance-address-book is empty).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(caller_address=None)
+        session = self._make_session(config, mock_client)
+        mock_ctpp_init = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", mock_ctpp_init),
+        ):
+            result = await session.start()
+
+        assert result is mock_receiver
+        assert session.active is True
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_reuses_existing_ctpp_skips_ctpp_init(self):
+        """When a CTPP channel already exists start() reuses it without re-running ctpp_init.
+
+        Coverage: lines 241-251 (reuse-CTPP branch, owns_ctpp=False).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(ctpp_exists=True)
+        session = self._make_session(config, mock_client)
+        mock_ctpp_init = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", mock_ctpp_init),
+        ):
+            result = await session.start()
+
+        mock_ctpp_init.assert_not_called()
+        assert session._owns_ctpp is False
+        assert result is mock_receiver
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_opens_cspb_when_missing_and_ctpp_reused(self):
+        """When CTPP is reused but CSPB is missing start() opens CSPB.
+
+        Coverage: lines 247-248 (open CSPB sub-branch inside reuse path).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(
+            ctpp_exists=True, cspb_exists=False
+        )
+        session = self._make_session(config, mock_client)
+
+        opened: list[str] = []
+        original_open = mock_client.open_channel
+
+        async def tracking_open(
+            name, channel_type, extra_data=None, trailing_byte=0, wire_name=None
+        ):
+            opened.append(name)
+            return await original_open(
+                name, channel_type,
+                extra_data=extra_data, trailing_byte=trailing_byte, wire_name=wire_name,
+            )
+
+        mock_client.open_channel = tracking_open
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+        ):
+            await session.start()
+
+        assert "CSPB" in opened
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_reuses_external_rtsp_server(self):
+        """When _external_rtsp=True start() resets the existing RTSP server instead of creating one.
+
+        Coverage: lines 308-309 (reuse coordinator RTSP branch).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks()
+        session = self._make_session(config, mock_client, rtsp_server=mock_rtsp)
+        mock_ctpp_init = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", mock_ctpp_init),
+        ):
+            result = await session.start()
+
+        mock_rtsp.reset.assert_called_once()
+        mock_rtsp.start.assert_not_called()
+        assert result is mock_receiver
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_rtpc_timeout_raises_video_call_error(self):
+        """TimeoutError waiting for device RTPC open event → VideoCallError.
+
+        Coverage: lines 415-417, 510-512.
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(
+            device_rtpc_timeout=True
+        )
+        session = self._make_session(config, mock_client)
+        mock_ctpp_init = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", mock_ctpp_init),
+            patch("custom_components.comelit_man.video_call.VIDEO_RESPONSE_TIMEOUT", 0.001),
+        ):
+            with pytest.raises(VideoCallError):
+                await session.start()
+
+    @pytest.mark.asyncio
+    async def test_no_media_does_not_raise(self):
+        """When wait_for_first_video returns False a warning is logged but no error is raised.
+
+        Coverage: lines 468-470 (no-media warning branch).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(no_media=True)
+        session = self._make_session(config, mock_client)
+        mock_ctpp_init = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", mock_ctpp_init),
+        ):
+            result = await session.start()
+
+        assert result is mock_receiver
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_auto_timeout_creates_timeout_task(self):
+        """When auto_timeout=True a timeout task is created after start() succeeds.
+
+        Coverage: line 502 (auto_timeout branch).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks()
+        session = self._make_session(config, mock_client, auto_timeout=True)
+        mock_ctpp_init = AsyncMock()
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", mock_ctpp_init),
+        ):
+            await session.start()
+
+        assert session._timeout_task is not None
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_exception_raises_video_call_error(self):
+        """Any unhandled exception during start() is wrapped and re-raised as VideoCallError.
+
+        Coverage: lines 510-512 (outer except handler).
+        """
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks()
+        session = self._make_session(config, mock_client)
+
+        mock_client.send_binary = AsyncMock(side_effect=RuntimeError("inject failure"))
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("custom_components.comelit_man.video_call.ctpp_init_sequence", AsyncMock()),
+        ):
+            with pytest.raises(VideoCallError):
+                await session.start()
