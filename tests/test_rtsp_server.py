@@ -1,4 +1,4 @@
-﻿"""Unit tests for LocalRtspServer — no real network clients needed."""
+"""Unit tests for LocalRtspServer — no real network clients needed."""
 
 from __future__ import annotations
 
@@ -387,7 +387,7 @@ class TestBroadcastRtp:
         written = client.writer.write.call_args[0][0]
         # TCP interleaved: $ + channel + length (2 BE) + RTP
         assert written[0] == 0x24  # '$'
-        assert written[1] == 0     # video channel
+        assert written[1] == 0  # video channel
         length = struct.unpack_from("!H", written, 2)[0]
         assert length == len(pkt)
 
@@ -462,7 +462,7 @@ class TestSendH264:
     def test_small_nal_single_rtp_packet(self):
         """NAL ≤ 1400 bytes is sent as a single RTP packet with marker=True."""
         server, written = self._setup_server_with_client()
-        nal_data = b"\x65" + b"\xAA" * 100  # IDR NAL
+        nal_data = b"\x65" + b"\xaa" * 100  # IDR NAL
         server._send_h264(nal_data)
 
         assert len(written) == 1
@@ -474,7 +474,7 @@ class TestSendH264:
     def test_large_nal_fragmented_fu_a(self):
         """NAL > 1400 bytes is fragmented into multiple FU-A RTP packets."""
         server, written = self._setup_server_with_client()
-        nal_data = b"\x65" + b"\xBB" * 3000  # Large IDR NAL
+        nal_data = b"\x65" + b"\xbb" * 3000  # Large IDR NAL
         server._send_h264(nal_data)
 
         assert len(written) > 1
@@ -484,13 +484,13 @@ class TestSendH264:
         nal_header_byte = first_rtp[12]
         fu_header_byte = first_rtp[13]
         assert (nal_header_byte & 0x1F) == 28  # FU-A type
-        assert fu_header_byte & 0x80            # Start bit
+        assert fu_header_byte & 0x80  # Start bit
 
         # Last fragment: end bit set, marker bit set
         last_rtp = written[-1][4:]
         last_fu_header = last_rtp[13]
-        assert last_fu_header & 0x40            # End bit
-        assert last_rtp[1] & 0x80              # Marker bit
+        assert last_fu_header & 0x40  # End bit
+        assert last_rtp[1] & 0x80  # Marker bit
 
     def test_small_nal_increments_video_seq(self):
         """Each RTP packet sent increments the video sequence counter."""
@@ -519,7 +519,7 @@ class TestSendH264:
         server._active_clients.append(client)
 
         # The feed loop reads from nal_queue and strips start codes
-        nal_with_start = b"\x00\x00\x00\x01\x65" + b"\xCC" * 20
+        nal_with_start = b"\x00\x00\x00\x01\x65" + b"\xcc" * 20
         server.nal_queue.put_nowait(nal_with_start)
 
         # Verify _send_h264 does not receive the start code
@@ -959,7 +959,7 @@ class TestDrainNalQueueFallback:
         server = LocalRtspServer()
         captured: list[bytes] = []
         server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
-        server.nal_queue.put_nowait((1000, b"\x00\x00\x00\x01\x65" + b"\xAA" * 10))
+        server.nal_queue.put_nowait((1000, b"\x00\x00\x00\x01\x65" + b"\xaa" * 10))
         await server._drain_nal_queue_fallback()
         assert len(captured) == 1
         assert not captured[0].startswith(b"\x00\x00\x00\x01")
@@ -970,7 +970,7 @@ class TestDrainNalQueueFallback:
         server = LocalRtspServer()
         captured: list[bytes] = []
         server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
-        server.nal_queue.put_nowait((2000, b"\x00\x00\x01\x65" + b"\xBB" * 10))
+        server.nal_queue.put_nowait((2000, b"\x00\x00\x01\x65" + b"\xbb" * 10))
         await server._drain_nal_queue_fallback()
         assert len(captured) == 1
         assert captured[0][0] == 0x65
@@ -980,7 +980,7 @@ class TestDrainNalQueueFallback:
         server = LocalRtspServer()
         captured: list[bytes] = []
         server._send_h264 = lambda nal: captured.append(nal)  # type: ignore[method-assign]
-        raw = b"\x65" + b"\xCC" * 10
+        raw = b"\x65" + b"\xcc" * 10
         server.nal_queue.put_nowait((3000, raw))
         await server._drain_nal_queue_fallback()
         assert captured[0] == raw
@@ -1007,7 +1007,7 @@ class TestDrainNalQueueFallback:
     async def test_caches_pps(self):
         server = LocalRtspServer()
         server._send_h264 = lambda nal: None  # type: ignore[method-assign]
-        pps = b"\x68" + b"\xCE" * 3  # NAL type 8
+        pps = b"\x68" + b"\xce" * 3  # NAL type 8
         server.nal_queue.put_nowait((6000, pps))
         await server._drain_nal_queue_fallback()
         assert server._latest_pps == pps
@@ -1096,9 +1096,7 @@ class TestBroadcastRtcp:
         sock = MagicMock()
         server._video_sock = sock
         server._broadcast_rtcp(b"\x80\xc8" + b"\x00" * 26, is_video=True)
-        sock.sendto.assert_called_once_with(
-            b"\x80\xc8" + b"\x00" * 26, ("192.168.1.10", 5005)
-        )
+        sock.sendto.assert_called_once_with(b"\x80\xc8" + b"\x00" * 26, ("192.168.1.10", 5005))
 
     def test_udp_audio_port_plus_one(self):
         server = LocalRtspServer()
@@ -1107,9 +1105,7 @@ class TestBroadcastRtcp:
         sock = MagicMock()
         server._audio_sock = sock
         server._broadcast_rtcp(b"\x80\xc8" + b"\x00" * 26, is_video=False)
-        sock.sendto.assert_called_once_with(
-            b"\x80\xc8" + b"\x00" * 26, ("192.168.1.10", 5007)
-        )
+        sock.sendto.assert_called_once_with(b"\x80\xc8" + b"\x00" * 26, ("192.168.1.10", 5007))
 
     def test_no_udp_host_skips_sendto(self):
         server = LocalRtspServer()
@@ -1132,8 +1128,12 @@ class TestBroadcastRtcp:
 class TestBuildRtcpSr:
     def _sr(self, **kw):
         defaults = dict(
-            ssrc=0xC0DE1234, ntp_secs=3_900_000_000, ntp_frac=0,
-            rtp_ts=12345, pkt_count=100, octet_count=14000,
+            ssrc=0xC0DE1234,
+            ntp_secs=3_900_000_000,
+            ntp_frac=0,
+            rtp_ts=12345,
+            pkt_count=100,
+            octet_count=14000,
         )
         defaults.update(kw)
         return _build_rtcp_sr(**defaults)
@@ -1253,10 +1253,12 @@ class _ResponseWriter:
 class TestRtcpSrLoop:
     @pytest.mark.asyncio
     async def test_pre_loop_wait_then_broadcasts_to_active_client(self):
-        """Pre-loop sleep runs until pkt_count > 0, then SRs are sent."""
+        """Event-gated wait resolves, then SRs are sent to active clients."""
         server = LocalRtspServer()
         server._running = True
-        server._video_pkt_count = 0  # triggers pre-loop wait
+        server._video_pkt_count = 1
+        server._audio_pkt_count = 1
+        server._first_media_event.set()
 
         w = MagicMock()
         w.is_closing.return_value = False
@@ -1264,18 +1266,8 @@ class TestRtcpSrLoop:
         w.write = lambda d: written.append(d)
         server._active_clients.append(_TcpClient(writer=w, video_ch=0, audio_ch=2))
 
-        sleep_count = 0
-
         async def mock_sleep(t: float) -> None:
-            nonlocal sleep_count
-            sleep_count += 1
-            if sleep_count == 1:
-                # unblock pre-loop
-                server._video_pkt_count = 1
-                server._audio_pkt_count = 1
-            else:
-                # exit main loop after one SR emission
-                server._running = False
+            server._running = False
 
         with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
             await server._rtcp_sr_loop()
@@ -1288,7 +1280,8 @@ class TestRtcpSrLoop:
         """When no clients are registered, SR broadcast is skipped."""
         server = LocalRtspServer()
         server._running = True
-        server._video_pkt_count = 1  # skip pre-loop
+        server._video_pkt_count = 1
+        server._first_media_event.set()
 
         sleep_count = 0
         broadcasts: list[tuple] = []
@@ -1299,9 +1292,11 @@ class TestRtcpSrLoop:
             server._running = False
 
         orig_brtcp = server._broadcast_rtcp
+
         def track_broadcast(pkt, is_video):
             broadcasts.append((pkt, is_video))
             orig_brtcp(pkt, is_video)
+
         server._broadcast_rtcp = track_broadcast  # type: ignore[method-assign]
 
         with patch("custom_components.comelit_man.rtsp_server.asyncio.sleep", mock_sleep):
@@ -1315,6 +1310,7 @@ class TestRtcpSrLoop:
         server = LocalRtspServer()
         server._running = True
         server._video_pkt_count = 1
+        server._first_media_event.set()
 
         async def mock_sleep(t: float) -> None:
             raise asyncio.CancelledError
@@ -1328,6 +1324,7 @@ class TestRtcpSrLoop:
         server = LocalRtspServer()
         server._running = True
         server._video_pkt_count = 1
+        server._first_media_event.set()
 
         async def mock_sleep(t: float) -> None:
             raise ValueError("unexpected")
@@ -1342,6 +1339,7 @@ class TestRtcpSrLoop:
         server._running = True
         server._video_pkt_count = 1
         server._audio_pkt_count = 1
+        server._first_media_event.set()
         server._udp_host = "192.168.1.5"
         server._udp_video_port = 5004
         sock = MagicMock()
@@ -1480,7 +1478,7 @@ class TestVideoFeedLoop:
         broadcasts: list[bytes] = []
         server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
 
-        items: list[tuple] = [(1000, b"\x65" + b"\xAA" * 20)]
+        items: list[tuple] = [(1000, b"\x65" + b"\xaa" * 20)]
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
             if asyncio.iscoroutine(coro):
@@ -1503,7 +1501,7 @@ class TestVideoFeedLoop:
         sent: list[bytes] = []
         server._send_h264 = lambda nal: sent.append(nal)  # type: ignore[method-assign]
 
-        items: list[tuple] = [(1000, b"\x00\x00\x00\x01\x65" + b"\xCC" * 10)]
+        items: list[tuple] = [(1000, b"\x00\x00\x00\x01\x65" + b"\xcc" * 10)]
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
             if asyncio.iscoroutine(coro):
@@ -1527,7 +1525,7 @@ class TestVideoFeedLoop:
         sent: list[bytes] = []
         server._send_h264 = lambda nal: sent.append(nal)  # type: ignore[method-assign]
 
-        items: list[tuple] = [(1000, b"\x00\x00\x01\x65" + b"\xDD" * 10)]
+        items: list[tuple] = [(1000, b"\x00\x00\x01\x65" + b"\xdd" * 10)]
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
             if asyncio.iscoroutine(coro):
@@ -1596,7 +1594,7 @@ class TestVideoFeedLoop:
         server._running = True
         server._send_h264 = lambda nal: None  # type: ignore[method-assign]
 
-        pps = b"\x68" + b"\xCE" * 4
+        pps = b"\x68" + b"\xce" * 4
         items: list[tuple] = [(1000, pps)]
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
@@ -1620,7 +1618,7 @@ class TestVideoFeedLoop:
         server._send_h264 = lambda nal: None  # type: ignore[method-assign]
         assert server._last_device_ts is None
 
-        items: list[tuple] = [(5000, b"\x65" + b"\xAA" * 5)]
+        items: list[tuple] = [(5000, b"\x65" + b"\xaa" * 5)]
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
             if asyncio.iscoroutine(coro):
@@ -1647,7 +1645,7 @@ class TestVideoFeedLoop:
         server._video_ts_out = 9000
         server._video_ts_offset = 0
 
-        items: list[tuple] = [(100, b"\x65" + b"\xAA" * 5)]  # backward: (100-5000)&mask >> 0x80000000
+        items: list[tuple] = [(100, b"\x65" + b"\xaa" * 5)]  # backward: (100-5000)&mask >> 0x80000000
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
             if asyncio.iscoroutine(coro):
@@ -1674,7 +1672,7 @@ class TestVideoFeedLoop:
         server._video_ts_offset = 500
         server._video_ts_out = 1500
 
-        items: list[tuple] = [(1100, b"\x65" + b"\xAA" * 5)]  # +100 forward
+        items: list[tuple] = [(1100, b"\x65" + b"\xaa" * 5)]  # +100 forward
 
         async def mock_wait_for(coro: object, timeout: float) -> tuple:
             if asyncio.iscoroutine(coro):
@@ -1747,7 +1745,7 @@ class TestVideoFeedLoop:
 
 
 def _make_rtp_pkt(
-    payload: bytes = b"\x65" + b"\xAA" * 10,
+    payload: bytes = b"\x65" + b"\xaa" * 10,
     ts: int = 1000,
     seq: int = 1,
 ) -> bytes:
@@ -1857,7 +1855,7 @@ class TestVideoRtpPassthroughLoop:
         server._running = True
         server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
 
-        pps_payload = b"\x68" + b"\xCE" * 4
+        pps_payload = b"\x68" + b"\xce" * 4
         rtp = _make_rtp_pkt(payload=pps_payload)
         items: list[bytes] = [rtp]
 
@@ -1880,7 +1878,7 @@ class TestVideoRtpPassthroughLoop:
         server = LocalRtspServer()
         server._running = True
         server._broadcast_rtp = lambda *a, **kw: None  # type: ignore[method-assign]
-        server.nal_queue.put_nowait((1000, b"\x65" + b"\xAA" * 10))
+        server.nal_queue.put_nowait((1000, b"\x65" + b"\xaa" * 10))
 
         fallback_called: list[bool] = []
         original_drain = server._drain_nal_queue_fallback
@@ -1971,7 +1969,7 @@ class TestVideoRtpPassthroughLoop:
         broadcasts: list[bytes] = []
         server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
 
-        rtp = _make_rtp_pkt(payload=b"\x65" + b"\xAA" * 5)
+        rtp = _make_rtp_pkt(payload=b"\x65" + b"\xaa" * 5)
         items: list[bytes] = [rtp]
 
         async def mock_wait_for(coro: object, timeout: float) -> bytes:
@@ -2003,10 +2001,12 @@ class TestHandleClient:
         """OPTIONS returns 200 OK with allowed methods."""
         server = LocalRtspServer()
         server._running = True
-        reader = _RequestReader([
-            b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
-            b"",
-        ])
+        reader = _RequestReader(
+            [
+                b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+                b"",
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
         assert b"RTSP/1.0 200 OK" in writer.data
@@ -2017,10 +2017,12 @@ class TestHandleClient:
         """DESCRIBE returns 200 OK with SDP body."""
         server = LocalRtspServer()
         server._running = True
-        reader = _RequestReader([
-            b"DESCRIBE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
-            b"",
-        ])
+        reader = _RequestReader(
+            [
+                b"DESCRIBE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
+                b"",
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
         assert b"Content-Type: application/sdp" in writer.data
@@ -2031,12 +2033,14 @@ class TestHandleClient:
         """SETUP with TCP interleaved returns Session header."""
         server = LocalRtspServer()
         server._running = True
-        reader = _RequestReader([
-            b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
-            b"CSeq: 3\r\n"
-            b"Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
-            b"",
-        ])
+        reader = _RequestReader(
+            [
+                b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
+                b"CSeq: 3\r\n"
+                b"Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
+                b"",
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
         assert b"Session:" in writer.data
@@ -2047,12 +2051,14 @@ class TestHandleClient:
         server = LocalRtspServer()
         server._running = True
         server._ready_event.set()
-        reader = _RequestReader([
-            b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
-            b"CSeq: 1\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
-            b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
-            b"",  # EOF in _wait_for_teardown
-        ])
+        reader = _RequestReader(
+            [
+                b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
+                b"CSeq: 1\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
+                b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
+                b"",  # EOF in _wait_for_teardown
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
         assert b"RTSP/1.0 200 OK" in writer.data
@@ -2089,9 +2095,11 @@ class TestHandleClient:
         """TEARDOWN before PLAY returns 200 OK from main loop."""
         server = LocalRtspServer()
         server._running = True
-        reader = _RequestReader([
-            b"TEARDOWN rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 5\r\n\r\n",
-        ])
+        reader = _RequestReader(
+            [
+                b"TEARDOWN rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 5\r\n\r\n",
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
         assert b"RTSP/1.0 200 OK" in writer.data
@@ -2102,10 +2110,12 @@ class TestHandleClient:
         """Unknown RTSP method returns 405 Method Not Allowed."""
         server = LocalRtspServer()
         server._running = True
-        reader = _RequestReader([
-            b"ANNOUNCE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
-            b"",
-        ])
+        reader = _RequestReader(
+            [
+                b"ANNOUNCE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+                b"",
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
         assert b"405 Method Not Allowed" in writer.data
@@ -2124,10 +2134,12 @@ class TestHandleClient:
         """Partial request followed by EOF exits via 'if not chunk: return'."""
         server = LocalRtspServer()
         server._running = True
-        reader = _RequestReader([
-            b"OPTIONS rtsp://127.0.0.1",  # no \r\n\r\n yet
-            b"",  # EOF mid-request
-        ])
+        reader = _RequestReader(
+            [
+                b"OPTIONS rtsp://127.0.0.1",  # no \r\n\r\n yet
+                b"",  # EOF mid-request
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)  # must not raise
 
@@ -2214,14 +2226,16 @@ class TestHandleClient:
         server = LocalRtspServer()
         server._running = True
         server._ready_event.set()
-        reader = _RequestReader([
-            b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
-            b"DESCRIBE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
-            b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
-            b"CSeq: 3\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
-            b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 4\r\n\r\n",
-            b"TEARDOWN /intercom RTSP/1.0\r\n",  # read by _wait_for_teardown
-        ])
+        reader = _RequestReader(
+            [
+                b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+                b"DESCRIBE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 2\r\n\r\n",
+                b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
+                b"CSeq: 3\r\nTransport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n",
+                b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 4\r\n\r\n",
+                b"TEARDOWN /intercom RTSP/1.0\r\n",  # read by _wait_for_teardown
+            ]
+        )
         writer = _ResponseWriter()
         await server._handle_client(reader, writer)
 

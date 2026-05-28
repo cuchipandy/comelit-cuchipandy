@@ -1,4 +1,4 @@
-﻿"""Unit tests for video call signaling flow.
+"""Unit tests for video call signaling flow.
 
 Tests the TCP signaling sequence in video_call.py and the supporting
 client/protocol changes, using a mocked TCP connection.
@@ -338,9 +338,7 @@ class TestCodecExchangeFiltering:
         try:
             # Open a channel
             reader.feed(_make_command_response(server_channel_id=100))
-            channel = await asyncio.wait_for(
-                client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0
-            )
+            channel = await asyncio.wait_for(client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0)
 
             # Feed a binary response on that channel
             body = b"\x40\x18\x00\x00\x00\x00\x00\x08\x00\x03"
@@ -348,8 +346,9 @@ class TestCodecExchangeFiltering:
             reader.feed(pkt)
             await asyncio.sleep(0.2)
 
-            # Should be available via read_response (read_response handles its own timeout)
-            resp = await client.read_response(channel, timeout=2.0)
+            # Should be available via read_response
+            async with asyncio.timeout(2.0):
+                resp = await client.read_response(channel)
             assert resp is not None
             assert struct.unpack_from("<H", resp, 0)[0] == 0x1840
         finally:
@@ -357,16 +356,15 @@ class TestCodecExchangeFiltering:
 
     @pytest.mark.asyncio
     async def test_read_response_timeout(self):
-        """read_response should return None on timeout."""
+        """read_response raises TimeoutError when no packet arrives."""
         client, reader, writer = await _setup_client()
         try:
             reader.feed(_make_command_response(server_channel_id=100))
-            channel = await asyncio.wait_for(
-                client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0
-            )
+            channel = await asyncio.wait_for(client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0)
 
-            resp = await client.read_response(channel, timeout=0.1)
-            assert resp is None
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.1):
+                    await client.read_response(channel)
         finally:
             await _teardown_client(client)
 
@@ -388,12 +386,11 @@ class TestVideoSignalingFlow:
 
             # Open CTPP channel
             reader.feed(_make_command_response(server_channel_id=ctpp_ch_id))
-            ctpp = await asyncio.wait_for(
-                client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0
-            )
+            ctpp = await asyncio.wait_for(client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0)
 
             # Send CTPP init (simulate what video_call.py does)
             from custom_components.comelit_man.protocol import encode_ctpp_init
+
             init_payload = encode_ctpp_init("SB000006", 1)
             await client.send_binary(ctpp, init_payload)
 
@@ -405,7 +402,8 @@ class TestVideoSignalingFlow:
 
             # Read exactly 2 responses (matching video_call.py Step 2)
             for _ in range(2):
-                resp = await client.read_response(ctpp, timeout=3.0)
+                async with asyncio.timeout(3.0):
+                    resp = await client.read_response(ctpp)
                 assert resp is not None
 
             # Send ACKs
@@ -430,9 +428,7 @@ class TestVideoSignalingFlow:
         try:
             ctpp_ch_id = 100
             reader.feed(_make_command_response(server_channel_id=ctpp_ch_id))
-            ctpp = await asyncio.wait_for(
-                client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0
-            )
+            ctpp = await asyncio.wait_for(client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0)
 
             dev_caller = "SB100001"
             our_caller = "SB0000061"
@@ -452,7 +448,11 @@ class TestVideoSignalingFlow:
             got_link_status = False
 
             for i in range(10):
-                resp = await client.read_response(ctpp, timeout=2.0)
+                try:
+                    async with asyncio.timeout(2.0):
+                        resp = await client.read_response(ctpp)
+                except TimeoutError:
+                    break
                 if not resp:
                     break
                 msg_type = struct.unpack_from("<H", resp, 0)[0]
@@ -481,9 +481,7 @@ class TestVideoSignalingFlow:
         try:
             ctpp_ch_id = 100
             reader.feed(_make_command_response(server_channel_id=ctpp_ch_id))
-            ctpp = await asyncio.wait_for(
-                client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0
-            )
+            ctpp = await asyncio.wait_for(client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0)
 
             dev_caller = "SB100001"
             our_caller = "SB0000061"
@@ -491,7 +489,8 @@ class TestVideoSignalingFlow:
             # Simulate device sending RTPC link on CTPP
             reader.feed(_make_device_rtpc_link(ctpp_ch_id, dev_caller, our_caller, 0xBFA3))
 
-            resp = await client.read_response(ctpp, timeout=2.0)
+            async with asyncio.timeout(2.0):
+                resp = await client.read_response(ctpp)
             assert resp is not None
             msg_type = struct.unpack_from("<H", resp, 0)[0]
             assert msg_type == 0x1840
@@ -515,9 +514,7 @@ class TestVideoSignalingFlow:
         try:
             ctpp_ch_id = 100
             reader.feed(_make_command_response(server_channel_id=ctpp_ch_id))
-            ctpp = await asyncio.wait_for(
-                client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0
-            )
+            ctpp = await asyncio.wait_for(client.open_channel("CTPP", ChannelType.CTPP), timeout=3.0)
 
             dev_caller = "SB100001"
             our_caller = "SB0000061"
@@ -530,7 +527,11 @@ class TestVideoSignalingFlow:
             # Simulate the loop from video_call.py that skips retransmits
             got_ack = False
             for _ in range(5):
-                resp = await client.read_response(ctpp, timeout=2.0)
+                try:
+                    async with asyncio.timeout(2.0):
+                        resp = await client.read_response(ctpp)
+                except TimeoutError:
+                    break
                 if not resp:
                     break
                 msg_type = struct.unpack_from("<H", resp, 0)[0]
@@ -559,6 +560,7 @@ class TestVideoProtocolEncoding:
     def test_encode_call_init_structure(self):
         """Call init should have 0x18C0 prefix and action 0x0028."""
         from custom_components.comelit_man.protocol import encode_call_init
+
         msg = encode_call_init("SB0000061", "SB100001", 0x12345678)
         prefix = struct.unpack_from("<H", msg, 0)[0]
         assert prefix == 0x18C0
@@ -571,6 +573,7 @@ class TestVideoProtocolEncoding:
     def test_encode_call_ack_structure(self):
         """Codec ack should have 0x1840 prefix and action 0x0008."""
         from custom_components.comelit_man.protocol import encode_call_ack
+
         msg = encode_call_ack("SB0000061", "SB100001", 0x12345678)
         prefix = struct.unpack_from("<H", msg, 0)[0]
         assert prefix == 0x1840
@@ -580,6 +583,7 @@ class TestVideoProtocolEncoding:
     def test_encode_rtpc_link_structure(self):
         """RTPC link should have action 0x000A and embed the RTPC req_id."""
         from custom_components.comelit_man.protocol import encode_rtpc_link
+
         msg = encode_rtpc_link("SB0000061", "SB100001", 0x21B5, 0x12345678)
         prefix = struct.unpack_from("<H", msg, 0)[0]
         assert prefix == 0x1840
@@ -591,6 +595,7 @@ class TestVideoProtocolEncoding:
     def test_encode_video_config_structure(self):
         """Video config should have action 0x001A and contain resolution."""
         from custom_components.comelit_man.protocol import encode_video_config
+
         msg = encode_video_config("SB0000061", "SB100001", 0x21B6, 0x12345678)
         prefix = struct.unpack_from("<H", msg, 0)[0]
         assert prefix == 0x1840

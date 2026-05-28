@@ -132,9 +132,7 @@ if not _HA_INSTALLED:
             return _ConfigFlowResult(type="create_entry", title=title, data=data)
 
         def async_show_form(self, *, step_id, data_schema, errors=None, **kwargs):
-            return _ConfigFlowResult(
-                type="form", step_id=step_id, data_schema=data_schema, errors=errors or {}
-            )
+            return _ConfigFlowResult(type="form", step_id=step_id, data_schema=data_schema, errors=errors or {})
 
     class _OptionsFlow:
         """Stub for homeassistant.config_entries.OptionsFlow."""
@@ -143,9 +141,7 @@ if not _HA_INSTALLED:
             return _ConfigFlowResult(type="create_entry", title=title, data=data)
 
         def async_show_form(self, *, step_id, data_schema, errors=None, **kwargs):
-            return _ConfigFlowResult(
-                type="form", step_id=step_id, data_schema=data_schema, errors=errors or {}
-            )
+            return _ConfigFlowResult(type="form", step_id=step_id, data_schema=data_schema, errors=errors or {})
 
     class _CoordinatorEntity:
         def __class_getitem__(cls, item):
@@ -285,30 +281,32 @@ if not _HA_INSTALLED:
     _ha_lovelace_resources = MagicMock()
     _ha_lovelace_resources.ResourceStorageCollection = _ResourceStorageCollection
 
-    sys.modules.update({
-        "homeassistant": _ha,
-        "homeassistant.config_entries": _ha_config_entries,
-        "homeassistant.const": _ha_const,
-        "homeassistant.core": _ha.core,
-        "homeassistant.exceptions": _ha_exceptions,
-        "homeassistant.helpers": _ha_helpers,
-        "homeassistant.helpers.update_coordinator": _ha_update_coordinator,
-        "homeassistant.helpers.aiohttp_client": _ha_helpers_aiohttp,
-        "homeassistant.helpers.entity": _ha_helpers_entity,
-        "homeassistant.helpers.entity_platform": _ha_entity_platform,
-        "homeassistant.helpers.issue_registry": MagicMock(),
-        "homeassistant.components": MagicMock(),
-        "homeassistant.components.button": _ha_button,
-        "homeassistant.components.camera": _ha_camera,
-        "homeassistant.components.diagnostics": _ha_diagnostics,
-        "homeassistant.components.event": _ha_event,
-        "homeassistant.components.repairs": _ha_repairs,
-        "homeassistant.components.http": _ha_http,
-        "homeassistant.components.frontend": _ha_frontend,
-        "homeassistant.components.lovelace": _ha_lovelace,
-        "homeassistant.components.lovelace.resources": _ha_lovelace_resources,
-        "voluptuous": _vol,
-    })
+    sys.modules.update(
+        {
+            "homeassistant": _ha,
+            "homeassistant.config_entries": _ha_config_entries,
+            "homeassistant.const": _ha_const,
+            "homeassistant.core": _ha.core,
+            "homeassistant.exceptions": _ha_exceptions,
+            "homeassistant.helpers": _ha_helpers,
+            "homeassistant.helpers.update_coordinator": _ha_update_coordinator,
+            "homeassistant.helpers.aiohttp_client": _ha_helpers_aiohttp,
+            "homeassistant.helpers.entity": _ha_helpers_entity,
+            "homeassistant.helpers.entity_platform": _ha_entity_platform,
+            "homeassistant.helpers.issue_registry": MagicMock(),
+            "homeassistant.components": MagicMock(),
+            "homeassistant.components.button": _ha_button,
+            "homeassistant.components.camera": _ha_camera,
+            "homeassistant.components.diagnostics": _ha_diagnostics,
+            "homeassistant.components.event": _ha_event,
+            "homeassistant.components.repairs": _ha_repairs,
+            "homeassistant.components.http": _ha_http,
+            "homeassistant.components.frontend": _ha_frontend,
+            "homeassistant.components.lovelace": _ha_lovelace,
+            "homeassistant.components.lovelace.resources": _ha_lovelace_resources,
+            "voluptuous": _vol,
+        }
+    )
 
 
 import pytest

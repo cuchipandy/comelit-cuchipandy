@@ -1,20 +1,14 @@
 """Real device integration tests.
 
-Run with: COMELIT_HOST=192.168.1.XX COMELIT_TOKEN=<token> pytest tests/test_integration.py -v
+Run with: COMELIT_HOST=192.168.1.XX COMELIT_TOKEN=<token> pytest tests/test_integration.py -v -s
 Set COMELIT_PASSWORD to auto-extract token via HTTP backup.
 
-Video tests require:
+Video/door tests require:
   1. The intercom screen to be awake (tap it — WiFi drops when idle).
   2. The HA comelit_man integration to be STOPPED or DISABLED. The device
      only accepts one CTPP session at a time; if HA is running with the
      integration active, it holds CTPP and the video tests will fail with
-     ConnectionResetError during call initiation. Disable in HA → Settings
-     → Devices & Services → Comelit Man, run the tests, then re-enable.
-
-Gate flags:
-  COMELIT_TEST_VIDEO=1   — run video pipeline tests (starts a real call)
-  COMELIT_TEST_DOOR=1    — run door-open tests (actually triggers the relay)
-  COMELIT_TEST_PUSH=1    — run 30-second push listener test
+     ConnectionResetError during call initiation.
 """
 
 import asyncio
@@ -27,9 +21,7 @@ COMELIT_HOST = os.environ.get("COMELIT_HOST")
 COMELIT_TOKEN = os.environ.get("COMELIT_TOKEN")
 COMELIT_PASSWORD = os.environ.get("COMELIT_PASSWORD", "comelit")
 
-pytestmark = pytest.mark.skipif(
-    not COMELIT_HOST, reason="COMELIT_HOST not set (real device required)"
-)
+pytestmark = pytest.mark.skipif(not COMELIT_HOST, reason="COMELIT_HOST not set (real device required)")
 
 
 @pytest.mark.asyncio
@@ -97,8 +89,6 @@ async def test_open_door():
     """Open the first door (CAREFUL: this actually opens a door!)."""
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_DOOR"):
-        pytest.skip("Set COMELIT_TEST_DOOR=1 to actually open a door")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -125,8 +115,6 @@ async def test_push_listener():
     """Listen for push notifications for 30 seconds."""
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_PUSH"):
-        pytest.skip("Set COMELIT_TEST_PUSH=1 to listen for push events")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -152,6 +140,7 @@ async def test_push_listener():
 # CTPP setup helper — mirrors coordinator._open_ctpp_channels
 # ---------------------------------------------------------------------------
 
+
 async def _setup_ctpp(client, config) -> int:
     """Open CTPP+CSPB channels and run the init handshake.
 
@@ -171,8 +160,11 @@ async def _setup_ctpp(client, config) -> int:
     await client.open_channel("CSPB", ChannelType.UAUT)
     ts = int(time.time()) & 0xFFFFFFFF
     await ctpp_init_sequence(
-        client, ctpp,
-        config.apt_address, config.apt_subaddress, our_addr,
+        client,
+        ctpp,
+        config.apt_address,
+        config.apt_subaddress,
+        our_addr,
         ts,
     )
     return ts
@@ -181,6 +173,7 @@ async def _setup_ctpp(client, config) -> int:
 # ---------------------------------------------------------------------------
 # RTSP client helpers (used by video integration tests)
 # ---------------------------------------------------------------------------
+
 
 async def _read_rtsp_response(reader: asyncio.StreamReader) -> bytes:
     """Read one complete RTSP response (headers + body) from the stream."""
@@ -234,9 +227,7 @@ async def _rtsp_play(
     PLAY 200 OK response — subsequent reads will be interleaved RTP frames.
     Caller is responsible for closing the writer.
     """
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection("127.0.0.1", port), timeout=5.0
-    )
+    reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=5.0)
     base_url = f"rtsp://127.0.0.1:{port}/intercom"
 
     # OPTIONS
@@ -246,9 +237,7 @@ async def _rtsp_play(
     assert b"200 OK" in resp, f"OPTIONS failed: {resp[:200]}"
 
     # DESCRIBE
-    writer.write(
-        f"DESCRIBE {base_url} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode()
-    )
+    writer.write(f"DESCRIBE {base_url} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode())
     await writer.drain()
     resp = await _read_rtsp_response(reader)
     assert b"200 OK" in resp, f"DESCRIBE failed: {resp[:200]}"
@@ -270,9 +259,7 @@ async def _rtsp_play(
             break
 
     # PLAY
-    writer.write(
-        f"PLAY {base_url} RTSP/1.0\r\nCSeq: 4\r\nSession: {session_id}\r\n\r\n".encode()
-    )
+    writer.write(f"PLAY {base_url} RTSP/1.0\r\nCSeq: 4\r\nSession: {session_id}\r\n\r\n".encode())
     await writer.drain()
     resp = await _read_rtsp_response(reader)
     assert b"200 OK" in resp, f"PLAY failed: {resp[:200]}"
@@ -284,6 +271,7 @@ async def _rtsp_play(
 # Video integration tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_start_video_call():
     """Start a real video call and verify RTP packets flow from the device.
@@ -294,8 +282,6 @@ async def test_start_video_call():
     """
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_VIDEO"):
-        pytest.skip("Set COMELIT_TEST_VIDEO=1 to run video tests")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -317,10 +303,7 @@ async def test_start_video_call():
         assert session.active, "Session not active after start()"
         total_pkts = receiver.udp_media_packet_count + receiver.tcp_media_packet_count
         assert total_pkts > 0, "No RTP packets received"
-        print(
-            f"\nVideo flowing — UDP={receiver.udp_media_packet_count} "
-            f"TCP={receiver.tcp_media_packet_count} pkts"
-        )
+        print(f"\nVideo flowing — UDP={receiver.udp_media_packet_count} TCP={receiver.tcp_media_packet_count} pkts")
     finally:
         if session:
             await session.stop()
@@ -338,8 +321,6 @@ async def test_rtsp_server_streams_video():
     """
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_VIDEO"):
-        pytest.skip("Set COMELIT_TEST_VIDEO=1 to run video tests")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -390,9 +371,7 @@ async def test_rtsp_server_streams_video():
 
         # Send TEARDOWN
         base_url = f"rtsp://127.0.0.1:{port}/intercom"
-        rtsp_writer.write(
-            f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
-        )
+        rtsp_writer.write(f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode())
         await rtsp_writer.drain()
 
     finally:
@@ -415,10 +394,6 @@ async def test_video_then_door_open():
     """
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
-    if not os.environ.get("COMELIT_TEST_VIDEO"):
-        pytest.skip("Set COMELIT_TEST_VIDEO=1 to run video tests")
-    if not os.environ.get("COMELIT_TEST_DOOR"):
-        pytest.skip("Set COMELIT_TEST_DOOR=1 to actually open a door")
 
     from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
@@ -474,8 +449,7 @@ async def test_video_then_door_open():
         assert len(post_frames) == 5, "Video stopped after door open"
 
         rtsp_writer.write(
-            f"TEARDOWN rtsp://127.0.0.1:{port}/intercom RTSP/1.0\r\n"
-            f"CSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
+            f"TEARDOWN rtsp://127.0.0.1:{port}/intercom RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
         )
         await rtsp_writer.drain()
 

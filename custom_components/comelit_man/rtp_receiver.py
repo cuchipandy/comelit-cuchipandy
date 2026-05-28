@@ -17,18 +17,22 @@ _LOGGER = logging.getLogger(__name__)
 _MAX_CONSECUTIVE_ERRORS = 5
 
 
-def _build_control_packet(
-    control_req_id: int, udpm_token: int, seq: int
-) -> bytes:
+def _build_control_packet(control_req_id: int, udpm_token: int, seq: int) -> bytes:
     """Build a UDP control/keepalive packet for the video stream.
 
     From PCAP: [ICONA header with control_req_id] [token LE16] [flag] [seq] [flag] 80
     """
     header = struct.pack("<BBHH2s", 0x00, 0x06, 6, control_req_id, b"\x00\x00")
-    body = bytes([
-        udpm_token & 0xFF, (udpm_token >> 8) & 0xFF,
-        0x00, seq & 0xFF, 0x00, 0x80,
-    ])
+    body = bytes(
+        [
+            udpm_token & 0xFF,
+            (udpm_token >> 8) & 0xFF,
+            0x00,
+            seq & 0xFF,
+            0x00,
+            0x80,
+        ]
+    )
     return header + body
 
 
@@ -175,10 +179,12 @@ class RtpReceiver:
         self._send_control()
         self._send_control()
         _LOGGER.debug(
-            "UDP socket ready: local port %d -> %s:%d "
-            "(control=0x%04X, token=0x%04X)",
-            actual_port, self._host, self._port,
-            self._control_req_id, self._udpm_token,
+            "UDP socket ready: local port %d -> %s:%d (control=0x%04X, token=0x%04X)",
+            actual_port,
+            self._host,
+            self._port,
+            self._control_req_id,
+            self._udpm_token,
         )
         return actual_port
 
@@ -211,9 +217,7 @@ class RtpReceiver:
         """Send a control/keepalive packet to the device."""
         if not self._transport:
             return
-        pkt = _build_control_packet(
-            self._control_req_id, self._udpm_token, self._control_seq
-        )
+        pkt = _build_control_packet(self._control_req_id, self._udpm_token, self._control_seq)
         self._transport.sendto(pkt)
         _LOGGER.debug("Sent UDP control packet seq=%d", self._control_seq)
         self._control_seq += 1
@@ -242,9 +246,7 @@ class RtpReceiver:
         self._media_packet_count += 1
         self._tcp_media_packet_count += 1
         if self._tcp_media_packet_count == 1:
-            _LOGGER.info(
-                "Media transport = TCP (RTPC2): first packet %d bytes", len(data)
-            )
+            _LOGGER.info("Media transport = TCP (RTPC2): first packet %d bytes", len(data))
         self._process_rtp(data)
 
     def _on_udp_packet(self, data: bytes) -> None:
@@ -257,7 +259,7 @@ class RtpReceiver:
         if req_id == self._media_req_id:
             # Strip 8-byte ICONA header AND Comelit trailer using body_len
             body_len = struct.unpack_from("<H", data, 2)[0]
-            raw_rtp = data[HEADER_SIZE:HEADER_SIZE + body_len]
+            raw_rtp = data[HEADER_SIZE : HEADER_SIZE + body_len]
 
             self._media_packet_count += 1
             self._udp_media_packet_count += 1
@@ -315,40 +317,41 @@ class RtpReceiver:
             nal_bytes = b"\x00\x00\x00\x01" + nal_data
             self._queue_nal(rtp_ts, nal_bytes)
         elif nal_type == 28:
-            # FU-A fragmented NAL unit
-            if len(nal_data) < 2:
-                return
-            fu_indicator = nal_data[0]
-            fu_header = nal_data[1]
-            start_bit = (fu_header >> 7) & 1
-            end_bit = (fu_header >> 6) & 1
-            frag_type = fu_header & 0x1F
-            nal_ref = fu_indicator & 0xE0
-
-            if start_bit:
-                # Start of fragmented NAL — reconstruct NAL header.
-                # All fragments of a single NAL share the same RTP timestamp,
-                # so we remember it from the first fragment.
-                reconstructed = bytes([nal_ref | frag_type])
-                self._current_fua_nal = bytearray(
-                    b"\x00\x00\x00\x01" + reconstructed + nal_data[2:]
-                )
-                self._current_fua_ts = rtp_ts
-                if frag_type == 5:
-                    self._log_idr_arrival(rtp_ts)
-            elif self._current_fua_nal:
-                # Continuation fragment
-                self._current_fua_nal.extend(nal_data[2:])
-
-            if end_bit and self._current_fua_nal:
-                self._queue_nal(self._current_fua_ts, bytes(self._current_fua_nal))
-                self._current_fua_nal = bytearray()
+            self._process_fua(nal_data, rtp_ts)
         elif 1 <= nal_type <= 23:
             # Other single NAL unit (IDR=5, non-IDR=1, etc.)
             if nal_type == 5:
                 self._log_idr_arrival(rtp_ts)
             nal_bytes = b"\x00\x00\x00\x01" + nal_data
             self._queue_nal(rtp_ts, nal_bytes)
+
+    def _process_fua(self, nal_data: bytes, rtp_ts: int) -> None:
+        """Reassemble an H.264 FU-A fragmented NAL unit."""
+        if len(nal_data) < 2:
+            return
+        fu_indicator = nal_data[0]
+        fu_header = nal_data[1]
+        start_bit = (fu_header >> 7) & 1
+        end_bit = (fu_header >> 6) & 1
+        frag_type = fu_header & 0x1F
+        nal_ref = fu_indicator & 0xE0
+
+        if start_bit:
+            # Start of fragmented NAL — reconstruct NAL header.
+            # All fragments of a single NAL share the same RTP timestamp,
+            # so we remember it from the first fragment.
+            reconstructed = bytes([nal_ref | frag_type])
+            self._current_fua_nal = bytearray(b"\x00\x00\x00\x01" + reconstructed + nal_data[2:])
+            self._current_fua_ts = rtp_ts
+            if frag_type == 5:
+                self._log_idr_arrival(rtp_ts)
+        elif self._current_fua_nal:
+            # Continuation fragment
+            self._current_fua_nal.extend(nal_data[2:])
+
+        if end_bit and self._current_fua_nal:
+            self._queue_nal(self._current_fua_ts, bytes(self._current_fua_nal))
+            self._current_fua_nal = bytearray()
 
     def _process_audio_rtp(self, rtp: bytes, payload_type: int) -> None:
         """Extract raw G.711 audio payload and push to RTSP fanout queue."""
@@ -379,13 +382,13 @@ class RtpReceiver:
         """
         now = time.monotonic()
         self._idr_count += 1
-        interval = (
-            now - self._last_idr_mono if self._last_idr_mono is not None else 0.0
-        )
+        interval = now - self._last_idr_mono if self._last_idr_mono is not None else 0.0
         self._last_idr_mono = now
         _LOGGER.debug(
             "IDR #%d rtp_ts=0x%08X interval=%.2fs",
-            self._idr_count, rtp_ts, interval,
+            self._idr_count,
+            rtp_ts,
+            interval,
         )
 
     def _queue_nal(self, rtp_ts: int, nal_bytes: bytes) -> None:
@@ -415,33 +418,25 @@ class RtpReceiver:
 
     def _maybe_log_drops(self) -> None:
         """Log queue drop counters at most once every 5 seconds."""
-        import time as _time  # noqa: PLC0415
-        now = _time.monotonic()
+        now = time.monotonic()
         if now - self._last_drop_log_mono < 5.0:
             return
         self._last_drop_log_mono = now
         _LOGGER.warning(
-            "Queue drops: pyav_nal=%d rtsp_nal=%d rtsp_audio=%d "
-            "(pipeline may be falling behind)",
+            "Queue drops: pyav_nal=%d rtsp_nal=%d rtsp_audio=%d (pipeline may be falling behind)",
             self._pyav_nal_drops,
             self._rtsp_nal_drops,
             self._rtsp_audio_drops,
         )
 
-    async def wait_for_first_video(self, timeout: float) -> bool:
+    async def wait_for_first_video(self) -> None:
         """Wait until the first H.264 NAL has been queued.
 
-        Returns True if video arrived within the timeout, False otherwise.
         Callers use this as a readiness gate before reporting the stream
-        as ready to the user.
+        as ready to the user. Callers manage their own timeout via
+        asyncio.timeout().
         """
-        try:
-            await asyncio.wait_for(
-                self._first_video_nal_event.wait(), timeout=timeout
-            )
-            return True
-        except TimeoutError:
-            return False
+        await self._first_video_nal_event.wait()
 
     @property
     def udp_media_packet_count(self) -> int:
@@ -464,16 +459,14 @@ class RtpReceiver:
 
         def _init_codec() -> tuple[Any, Any]:
             """Import PyAV and create H.264 codec context (runs in thread)."""
-            import av  # noqa: PLC0415
+            import av  # deferred: loading ffmpeg C lib blocks event loop on aarch64
+
             return av, av.CodecContext.create("h264", "r")
 
         try:
             av, codec = await loop.run_in_executor(None, _init_codec)
         except ImportError:
-            _LOGGER.error(
-                "PyAV (av) not installed — cannot decode video. "
-                "Install with: pip install av"
-            )
+            _LOGGER.error("PyAV (av) not installed — cannot decode video. Install with: pip install av")
             return
 
         h264_buffer = bytearray()
@@ -482,41 +475,10 @@ class RtpReceiver:
 
         verbose = _LOGGER.isEnabledFor(logging.DEBUG)
 
-        def _decode_buffer_sync(buf: bytes) -> list[tuple[int, int, bytes]]:
-            """Parse + decode + JPEG-encode a buffer. Runs in thread pool.
-
-            Returns list of (width, height, jpeg_bytes) tuples — one per
-            decoded frame. Runs blocking C calls off the event loop so the
-            asyncio slow-task detector is not triggered.
-            """
-            import time as _time  # noqa: PLC0415
-            results = []
-            t0 = _time.monotonic() if verbose else 0.0
-            packets = codec.parse(buf)
-            t1 = _time.monotonic() if verbose else 0.0
-            for packet in packets:
-                for frame in codec.decode(packet):
-                    t2 = _time.monotonic() if verbose else 0.0
-                    jpeg = RtpReceiver._frame_to_jpeg(frame)
-                    if jpeg:
-                        results.append((frame.width, frame.height, jpeg))
-                        if verbose:
-                            _LOGGER.debug(
-                                "Decode timing: parse=%.3fs decode=%.3fs "
-                                "jpeg=%.3fs size=%d",
-                                t1 - t0,
-                                t2 - t1,
-                                _time.monotonic() - t2,
-                                len(jpeg),
-                            )
-            return results
-
         try:
             while self._running:
                 try:
-                    _, nal = await asyncio.wait_for(
-                        self._nal_queue.get(), timeout=2.0
-                    )
+                    _, nal = await asyncio.wait_for(self._nal_queue.get(), timeout=2.0)
                 except TimeoutError:
                     if verbose and frame_count == 0:
                         _LOGGER.debug(
@@ -532,7 +494,7 @@ class RtpReceiver:
                     h264_buffer.clear()
                     try:
                         decoded = await loop.run_in_executor(
-                            None, _decode_buffer_sync, buf_snapshot
+                            None, self._sync_decode_buffer, codec, av, buf_snapshot, verbose
                         )
                         for w, h, jpeg_data in decoded:
                             frame_count += 1
@@ -541,7 +503,10 @@ class RtpReceiver:
                             if verbose and (frame_count <= 5 or frame_count % 50 == 0):
                                 _LOGGER.debug(
                                     "Frame %d: %dx%d (%d bytes JPEG), queue=%d",
-                                    frame_count, w, h, len(jpeg_data),
+                                    frame_count,
+                                    w,
+                                    h,
+                                    len(jpeg_data),
                                     self._nal_queue.qsize(),
                                 )
                         consecutive_errors = 0
@@ -565,9 +530,37 @@ class RtpReceiver:
 
         _LOGGER.debug(
             "Decode loop ended: %d frames decoded, %d media packets received",
-            frame_count, self._media_packet_count,
+            frame_count,
+            self._media_packet_count,
         )
 
+    @staticmethod
+    def _sync_decode_buffer(codec: Any, av: Any, buf: bytes, verbose: bool) -> list[tuple[int, int, bytes]]:
+        """Parse + decode + JPEG-encode a buffer. Runs in thread pool.
+
+        Returns list of (width, height, jpeg_bytes) tuples — one per decoded
+        frame. Runs blocking C calls off the event loop so the asyncio
+        slow-task detector is not triggered.
+        """
+        results = []
+        t0 = time.monotonic() if verbose else 0.0
+        packets = codec.parse(buf)
+        t1 = time.monotonic() if verbose else 0.0
+        for packet in packets:
+            for frame in codec.decode(packet):
+                t2 = time.monotonic() if verbose else 0.0
+                jpeg = RtpReceiver._frame_to_jpeg(frame)
+                if jpeg:
+                    results.append((frame.width, frame.height, jpeg))
+                    if verbose:
+                        _LOGGER.debug(
+                            "Decode timing: parse=%.3fs decode=%.3fs jpeg=%.3fs size=%d",
+                            t1 - t0,
+                            t2 - t1,
+                            time.monotonic() - t2,
+                            len(jpeg),
+                        )
+        return results
 
     @staticmethod
     def _frame_to_jpeg(frame: Any) -> bytes | None:
@@ -615,20 +608,17 @@ class RtpReceiver:
             self._media_packet_count,
         )
 
-    async def get_jpeg_frame(self, timeout: float = 5.0) -> bytes | None:
+    async def get_jpeg_frame(self) -> bytes | None:
         """Wait for the next new JPEG frame and return it.
 
         Always waits for the frame event — never returns a cached frame
         immediately. This throttles callers to the device's native fps
         (~16fps) and prevents them from spinning in a tight loop that
         floods the TCP send buffer and causes 10-15s write stalls.
-
-        On timeout, returns the last decoded frame (or None if no frame
-        has ever been decoded) so callers always have something to show.
+        Callers manage their own timeout via asyncio.timeout().
         """
         self._frame_event.clear()
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._frame_event.wait(), timeout=timeout)
+        await self._frame_event.wait()
         return self._latest_frame
 
     @property

@@ -6,6 +6,7 @@ ctpp_init_sequence() so the registration handshake is implemented exactly once.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import struct
 
@@ -58,16 +59,15 @@ async def ctpp_init_sequence(
     if send_ack:
         assert timestamp is not None, "timestamp required when send_ack=True"
         ack_ts = (timestamp + _CTR_INCR_BOTH) & 0xFFFFFFFF
-        await client.send_binary(
-            channel, encode_call_response_ack(our_addr, apt_addr, ack_ts)
-        )
-        await client.send_binary(
-            channel, encode_call_response_ack(our_addr, apt_addr, ack_ts, prefix=0x1820)
-        )
+        await client.send_binary(channel, encode_call_response_ack(our_addr, apt_addr, ack_ts))
+        await client.send_binary(channel, encode_call_response_ack(our_addr, apt_addr, ack_ts, prefix=0x1820))
         _LOGGER.debug(
-            "CTPP ACK pair sent (init_ts=0x%08X ack_ts=0x%08X)", timestamp, ack_ts,
+            "CTPP ACK pair sent (init_ts=0x%08X ack_ts=0x%08X)",
+            timestamp,
+            ack_ts,
         )
-    
+
+
 async def read_response_ctpp(
     client: IconaBridgeClient,
     channel: Channel,
@@ -76,14 +76,21 @@ async def read_response_ctpp(
     # Drain device's two responses (0x1800 ACK + 0x1860/0x0010 renewal request).
     # We don't use the device's timestamp to compute our ACK — see docstring.
     for i in range(2):
-        resp = await client.read_response(channel, timeout=response_timeout)
-        if resp and len(resp) >= _CTPP_RESPONSE_MIN_LEN:
+        try:
+            async with asyncio.timeout(response_timeout):
+                resp = await client.read_response(channel)
+        except TimeoutError:
+            _LOGGER.debug("CTPP init response %d: no response (timeout)", i + 1)
+            continue
+        if len(resp) >= _CTPP_RESPONSE_MIN_LEN:
             prefix = struct.unpack_from("<H", resp, 0)[0]
             resp_ts = struct.unpack_from("<I", resp, 2)[0]
             action = struct.unpack_from(">H", resp, 6)[0]
             _LOGGER.debug(
                 "CTPP init response %d: %d bytes, prefix=0x%04X ts=0x%08X action=0x%04X",
-                i + 1, len(resp), prefix, resp_ts, action,
+                i + 1,
+                len(resp),
+                prefix,
+                resp_ts,
+                action,
             )
-        else:
-            _LOGGER.debug("CTPP init response %d: no response (timeout)", i + 1)

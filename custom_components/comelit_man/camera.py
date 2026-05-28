@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from .camera_utils import get_rtsp_url
 from .const import DOMAIN, MANUFACTURER
@@ -35,11 +38,7 @@ async def async_setup_entry(
     if not config:
         return
 
-    entities: list[Camera] = [
-        ComelitCamera(coordinator, cam, entry.entry_id)
-        for cam in config.cameras
-        if cam.rtsp_url
-    ]
+    entities: list[Camera] = [ComelitCamera(coordinator, cam, entry.entry_id) for cam in config.cameras if cam.rtsp_url]
 
     # Add intercom camera if there are doors (i.e. the device has an intercom)
     if config.doors:
@@ -131,7 +130,7 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
         """Return the RTSP URL, waiting briefly if a session is starting.
 
         Gating on `_video_ready_event` prevents HA's stream worker and
-        go2rtc from connecting during the 2–3 s CTPP handshake window —
+        go2rtc from connecting during the 2-3 s CTPP handshake window —
         if they connect before video RTP flows, ffmpeg's demuxer errors
         with "Stream ended; no additional packets" and HA backs off ~10 s
         before retrying, which is the dominant delay in time-to-first-frame.
@@ -143,31 +142,27 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
         if self.coordinator.video_session is not None:
             return self.coordinator.rtsp_url
         try:
-            await asyncio.wait_for(
-                self.coordinator._video_ready_event.wait(), timeout=5.0
-            )
+            await asyncio.wait_for(self.coordinator._video_ready_event.wait(), timeout=5.0)
             return self.coordinator.rtsp_url
         except TimeoutError:
             return None
 
-    async def async_camera_image(
-        self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
+    async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
         """Return the latest JPEG frame, or placeholder when video is off."""
         session = self.coordinator.video_session
         if not session or not session.active or not session.rtp_receiver:
             return PLACEHOLDER_JPEG
-        return await session.rtp_receiver.get_jpeg_frame(timeout=2.0)
+        try:
+            async with asyncio.timeout(2.0):
+                return await session.rtp_receiver.get_jpeg_frame()
+        except TimeoutError:
+            return session.rtp_receiver.latest_frame
 
     async def async_added_to_hass(self) -> None:
         """Register for push events when entity is added."""
         self._remove_push_cb = self.coordinator.add_push_callback(self._on_push)
-        self._remove_stop_video_cb = self.coordinator.add_stop_video_callback(
-            self._async_stop_ha_stream
-        )
-        self._remove_state_cb = self.coordinator.add_video_state_change_callback(
-            self._async_video_state_changed
-        )
+        self._remove_stop_video_cb = self.coordinator.add_stop_video_callback(self._async_stop_ha_stream)
+        self._remove_state_cb = self.coordinator.add_video_state_change_callback(self._async_video_state_changed)
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister callbacks when entity is removed."""

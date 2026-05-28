@@ -6,8 +6,11 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -110,9 +113,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         """Return the persistent RTSP server instance."""
         return self._rtsp_server
 
-    async def _open_ctpp_channels(
-        self, client: IconaBridgeClient, config: DeviceConfig
-    ) -> int:
+    async def _open_ctpp_channels(self, client: IconaBridgeClient, config: DeviceConfig) -> int:
         """Open CTPP + CSPB channels and run the full init handshake.
 
         Called at setup and reconnect when notifications are enabled. When
@@ -122,20 +123,22 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         derive its outgoing ACK timestamps from the same value.
         """
         our_addr = f"{config.apt_address}{config.apt_subaddress}"
-        ctpp = await client.open_channel(
-            "CTPP", ChannelType.UAUT, extra_data=our_addr
-        )
+        ctpp = await client.open_channel("CTPP", ChannelType.UAUT, extra_data=our_addr)
         await client.open_channel("CSPB", ChannelType.UAUT)
         ts = int(time.time()) & 0xFFFFFFFF
         await ctpp_init_sequence(
-            client, ctpp,
-            config.apt_address, config.apt_subaddress, our_addr,
+            client,
+            ctpp,
+            config.apt_address,
+            config.apt_subaddress,
+            our_addr,
             ts,
         )
         self._ctpp_init_ts = ts
         _LOGGER.info(
             "CTPP channels opened for VIP events (address=%s, ts=0x%08X)",
-            our_addr, ts,
+            our_addr,
+            ts,
         )
         return ts
 
@@ -161,7 +164,10 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             try:
                 init_ts = await self._open_ctpp_channels(client, self._config)
                 vip = VipEventListener(
-                    client, self._config, self._on_push_event, init_ts=init_ts,
+                    client,
+                    self._config,
+                    self._on_push_event,
+                    init_ts=init_ts,
                 )
                 await vip.start()
                 self._vip_listener = vip
@@ -234,7 +240,10 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             try:
                 init_ts = await self._open_ctpp_channels(client, self._config)
                 vip = VipEventListener(
-                    client, self._config, self._on_push_event, init_ts=init_ts,
+                    client,
+                    self._config,
+                    self._on_push_event,
+                    init_ts=init_ts,
                 )
                 await vip.start()
                 self._vip_listener = vip
@@ -263,9 +272,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             await self._client.disconnect()
             self._client = None
 
-    def add_push_callback(
-        self, callback: Callable[[PushEvent], None]
-    ) -> Callable[[], None]:
+    def add_push_callback(self, callback: Callable[[PushEvent], None]) -> Callable[[], None]:
         """Register a push event callback. Returns a callable that removes it."""
         self._push_callbacks[callback] = None
 
@@ -274,9 +281,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
 
         return _remove
 
-    def add_stop_video_callback(
-        self, callback: Callable[[], Awaitable[None]]
-    ) -> Callable[[], None]:
+    def add_stop_video_callback(self, callback: Callable[[], Awaitable[None]]) -> Callable[[], None]:
         """Register an async callback invoked when video is stopped."""
         self._on_stop_video[callback] = None
 
@@ -285,9 +290,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
 
         return _remove
 
-    def add_video_state_change_callback(
-        self, callback: Callable[[], Awaitable[None]]
-    ) -> Callable[[], None]:
+    def add_video_state_change_callback(self, callback: Callable[[], Awaitable[None]]) -> Callable[[], None]:
         """Register an async callback invoked after video becomes ready or stops."""
         self._on_video_state_change[callback] = None
 
@@ -329,9 +332,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         if self._video_session and self._video_session.active:
             our_addr = f"{self._config.apt_address}{self._config.apt_subaddress}"
             entrance_addr = self._config.caller_address or our_addr
-            await self._video_session.async_open_door_on_ctpp(
-                our_addr, entrance_addr, door.output_index
-            )
+            await self._video_session.async_open_door_on_ctpp(our_addr, entrance_addr, door.output_index)
         else:
             try:
                 await open_door(self.host, self.port, self.token, self._client, self._config, door)
@@ -340,9 +341,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                     self.config_entry.async_start_reauth(self.hass)  # type: ignore[union-attr]
                 raise
 
-    async def async_start_video(
-        self, auto_timeout: bool = True, by_user: bool = False
-    ) -> VideoCallSession:
+    async def async_start_video(self, auto_timeout: bool = True, by_user: bool = False) -> VideoCallSession:
         """Start a video call session.
 
         Concurrent calls are dropped — the device can only negotiate one
@@ -531,7 +530,9 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             return
         try:
             vip = VipEventListener(
-                self._client, self._config, self._on_push_event,
+                self._client,
+                self._config,
+                self._on_push_event,
                 init_ts=self._ctpp_init_ts,
             )
             await vip.start()

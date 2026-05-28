@@ -27,7 +27,7 @@ _REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=60, connect=10)
 
 async def extract_token(
     host: str,
-    password: str = "comelit",  # nosemgrep: hardcoded-password-default-argument
+    password: str | None = None,
     http_port: int = 8080,
     hass: HomeAssistant | None = None,
 ) -> str | None:
@@ -36,6 +36,8 @@ async def extract_token(
     The Comelit web interface uses IP-based sessions — once we authenticate
     from an IP address, all subsequent requests from that IP are authorized.
     """
+    if password is None:
+        password = "comelit"
     base_url = f"http://{host}:{http_port}"
 
     if hass is not None:
@@ -90,9 +92,7 @@ async def _do_extract(session: aiohttp.ClientSession, base_url: str, password: s
 
     # Step 3: Find backup link
     _LOGGER.debug("Listing backups")
-    async with session.get(
-        f"{base_url}/config-backup.html", timeout=_REQUEST_TIMEOUT
-    ) as resp:
+    async with session.get(f"{base_url}/config-backup.html", timeout=_REQUEST_TIMEOUT) as resp:
         if resp.status != 200:
             raise TokenExtractionError(f"Backup page returned status {resp.status}")
         html = await resp.text()
@@ -100,10 +100,7 @@ async def _do_extract(session: aiohttp.ClientSession, base_url: str, password: s
     backup_files = re.findall(r"([0-9]+\.tar\.gz)", html)
 
     if not backup_files:
-        raise TokenExtractionError(
-            f"No backup files found on device. "
-            f"Page content (first 500 chars): {html[:500]}"
-        )
+        raise TokenExtractionError(f"No backup files found on device. Page content (first 500 chars): {html[:500]}")
 
     # Use the latest backup (highest number)
     backup_files.sort()
@@ -149,18 +146,16 @@ def _parse_token_from_archive(archive_data: bytes) -> str | None:
                         # Skip null tokens (all zeros)
                         for token in matches:
                             if token != "00000000000000000000000000000000":
-                                _LOGGER.debug("Extracted token: %s...%s", token[:4], token[-4:])  # nosemgrep: python-logger-credential-disclosure
+                                _LOGGER.debug(
+                                    "Extracted token: %s...%s", token[:4], token[-4:]
+                                )  # nosemgrep: python-logger-credential-disclosure
                                 return str(token)
 
                     raise TokenExtractionError(
-                        f"Token pattern not found in users.cfg "
-                        f"(file size: {len(content)} bytes)"
+                        f"Token pattern not found in users.cfg (file size: {len(content)} bytes)"
                     )
 
     except tarfile.TarError as e:
         raise TokenExtractionError(f"Failed to read backup archive: {e}") from e
 
-    raise TokenExtractionError(
-        f"users.cfg not found in backup archive. "
-        f"Members seen: {members_seen}"
-    )
+    raise TokenExtractionError(f"users.cfg not found in backup archive. Members seen: {members_seen}")

@@ -112,13 +112,22 @@ class TestEncodeDoorDuringVideo:
 class TestDecodeRtpHeader:
     def _make_packet(self, payload_type: int = 96, seq: int = 1, ts: int = 0, ssrc: int = 0) -> bytes:
         icona = b"\x00\x06" + b"\x00" * 6  # 8-byte ICONA header
-        rtp = bytes([
-            0x80,               # V=2, P=0, X=0, CC=0
-            payload_type & 0x7F,
-            (seq >> 8) & 0xFF, seq & 0xFF,
-            (ts >> 24) & 0xFF, (ts >> 16) & 0xFF, (ts >> 8) & 0xFF, ts & 0xFF,
-            (ssrc >> 24) & 0xFF, (ssrc >> 16) & 0xFF, (ssrc >> 8) & 0xFF, ssrc & 0xFF,
-        ])
+        rtp = bytes(
+            [
+                0x80,  # V=2, P=0, X=0, CC=0
+                payload_type & 0x7F,
+                (seq >> 8) & 0xFF,
+                seq & 0xFF,
+                (ts >> 24) & 0xFF,
+                (ts >> 16) & 0xFF,
+                (ts >> 8) & 0xFF,
+                ts & 0xFF,
+                (ssrc >> 24) & 0xFF,
+                (ssrc >> 16) & 0xFF,
+                (ssrc >> 8) & 0xFF,
+                ssrc & 0xFF,
+            ]
+        )
         return icona + rtp + b"\x00" * 4  # minimal payload
 
     def test_parses_version(self):
@@ -419,9 +428,9 @@ class TestDispatchEdgeCases:
         client = _connected_client()
         body = bytearray(10)
         struct.pack_into("<H", body, 0, 0x01EF)  # END magic
-        struct.pack_into("<H", body, 2, 3)        # seq=3
-        struct.pack_into("<I", body, 4, 4)         # sub_type=4 (ACK, not close-request)
-        struct.pack_into("<H", body, 8, 42)         # ch_id
+        struct.pack_into("<H", body, 2, 3)  # seq=3
+        struct.pack_into("<I", body, 4, 4)  # sub_type=4 (ACK, not close-request)
+        struct.pack_into("<H", body, 8, 42)  # ch_id
         pkt = encode_header(len(body), 0) + bytes(body)
         header = pkt[:HEADER_SIZE]
         assert struct.unpack_from("<H", header, 4)[0] == 0  # request_id=0
@@ -461,6 +470,7 @@ class TestDispatchEdgeCases:
     def test_json_response_queued_on_channel(self):
         """JSON response queued on matching channel — line 305 (JSON branch)."""
         import json
+
         client = _connected_client()
         ch = _open_channel(client, "CH", ch_id=55)
         json_body = json.dumps({"response-code": 200}).encode()
@@ -473,11 +483,11 @@ class TestDispatchEdgeCases:
         # Build a COMMAND response body with seq=1 (device-initiated) but no null byte
         body = bytearray()
         body += struct.pack("<H", MessageType.COMMAND)
-        body += struct.pack("<H", 1)           # seq=1 → device-initiated
-        body += struct.pack("<I", 0)           # type
-        body += b"NOCTPP"                       # channel name (no null terminator)
-        body += b"\x00\x00\x42\x00"            # dev_req_id at end-3
-        client._dispatch(0, bytes(body))       # should not raise
+        body += struct.pack("<H", 1)  # seq=1 → device-initiated
+        body += struct.pack("<I", 0)  # type
+        body += b"NOCTPP"  # channel name (no null terminator)
+        body += b"\x00\x00\x42\x00"  # dev_req_id at end-3
+        client._dispatch(0, bytes(body))  # should not raise
 
 
 class TestSendJsonBinaryResponse:

@@ -124,6 +124,7 @@ class TestExceptionHierarchy:
         # ComelitError inherits from HomeAssistantError (real or stub).
         from custom_components.comelit_man.exceptions import ComelitError
         from tests.conftest import _HomeAssistantError
+
         assert issubclass(ComelitError, _HomeAssistantError)
 
     def test_door_open_error_with_translation_kwargs(self):

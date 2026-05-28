@@ -1,4 +1,4 @@
-﻿"""Unit tests for button entities."""
+"""Unit tests for button entities."""
 
 from __future__ import annotations
 
@@ -38,12 +38,8 @@ class TestComelitStopVideoButton:
         btn = _make_stop_button()
         call_order = []
 
-        btn.coordinator.request_video_stop = MagicMock(
-            side_effect=lambda: call_order.append("request_stop")
-        )
-        btn.coordinator.async_stop_video = AsyncMock(
-            side_effect=lambda: call_order.append("async_stop")
-        )
+        btn.coordinator.request_video_stop = MagicMock(side_effect=lambda: call_order.append("request_stop"))
+        btn.coordinator.async_stop_video = AsyncMock(side_effect=lambda: call_order.append("async_stop"))
 
         await btn.async_press()
 
@@ -53,9 +49,7 @@ class TestComelitStopVideoButton:
     async def test_press_does_not_raise_on_exception(self):
         """async_press must not propagate exceptions."""
         btn = _make_stop_button()
-        btn.coordinator.async_stop_video = AsyncMock(
-            side_effect=RuntimeError("stop failed")
-        )
+        btn.coordinator.async_stop_video = AsyncMock(side_effect=RuntimeError("stop failed"))
 
         await btn.async_press()  # should not raise
 
@@ -108,8 +102,10 @@ class TestComelitDoorButton:
 
         # Capture and close the coroutine so it doesn't leak
         created_coros = []
+
         def capture_task(hass, coro, name):
             created_coros.append(coro)
+
         btn.coordinator.config_entry.async_create_background_task = capture_task
 
         await btn.async_press()
@@ -245,6 +241,7 @@ class TestButtonSetupEntry:
     @pytest.mark.asyncio
     async def test_setup_entry_creates_entities_for_doors(self):
         from custom_components.comelit_man.button import async_setup_entry
+
         door = Door(id=0, index=0, name="Main", apt_address="SB100001", output_index=0)
         coordinator = MagicMock()
         coordinator.device_config = MagicMock(doors=[door])
@@ -262,6 +259,7 @@ class TestButtonSetupEntry:
     @pytest.mark.asyncio
     async def test_setup_entry_no_config_adds_nothing(self):
         from custom_components.comelit_man.button import async_setup_entry
+
         coordinator = MagicMock()
         coordinator.device_config = None
         entry = MagicMock()
@@ -273,6 +271,7 @@ class TestButtonSetupEntry:
     @pytest.mark.asyncio
     async def test_setup_entry_no_doors_adds_nothing(self):
         from custom_components.comelit_man.button import async_setup_entry
+
         coordinator = MagicMock()
         coordinator.device_config = MagicMock(doors=[])
         entry = MagicMock()

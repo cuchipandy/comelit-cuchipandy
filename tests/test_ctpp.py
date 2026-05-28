@@ -1,4 +1,4 @@
-﻿"""Unit tests for ctpp_init_sequence — no device needed."""
+"""Unit tests for ctpp_init_sequence — no device needed."""
 
 from __future__ import annotations
 
@@ -30,11 +30,12 @@ class TestCtppInitSequence:
     @pytest.mark.asyncio
     async def test_sends_ctpp_init(self):
         """ctpp_init_sequence must send encode_ctpp_init as the first binary message."""
-        client = _make_client([b"\x00\x18" + b"\x00" * 6, None])
+        client = _make_client([b"\x00\x18" + b"\x00" * 6, b"\x00\x18" + b"\x00" * 6])
         channel = MagicMock()
 
         with pytest.MonkeyPatch().context() as mp:
             from custom_components.comelit_man import ctpp as ctpp_mod
+
             sent = []
             client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
             await ctpp_init_sequence(client, channel, "SB000006", 1, "SB0000061", 0x12345678)
@@ -94,12 +95,17 @@ class TestCtppInitSequence:
     @pytest.mark.asyncio
     async def test_timeout_on_no_response_is_handled(self):
         """If read_response returns None (timeout), sequence continues without raising."""
-        client = _make_client([None, None])
+        client = _make_client([TimeoutError(), TimeoutError()])
         channel = MagicMock()
 
         # Must not raise
         await ctpp_init_sequence(
-            client, channel, "SB000006", 1, "SB0000061", 0x10000000,
+            client,
+            channel,
+            "SB000006",
+            1,
+            "SB0000061",
+            0x10000000,
             response_timeout=0.1,
         )
 
@@ -124,14 +130,19 @@ class TestCtppInitSequence:
     @pytest.mark.asyncio
     async def test_send_ack_false_omits_ack_pair(self):
         """send_ack=False must send only the init message — no ACK pair."""
-        client = _make_client([None, None])
+        client = _make_client([TimeoutError(), TimeoutError()])
         channel = MagicMock()
 
         sent: list[bytes] = []
         client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
 
         await ctpp_init_sequence(
-            client, channel, "SB000006", 1, "SB0000061", 0x10000000,
+            client,
+            channel,
+            "SB000006",
+            1,
+            "SB0000061",
+            0x10000000,
             send_ack=False,
         )
 
@@ -140,11 +151,16 @@ class TestCtppInitSequence:
     @pytest.mark.asyncio
     async def test_send_ack_false_still_reads_responses(self):
         """send_ack=False must still drain the two device responses."""
-        client = _make_client([None, None])
+        client = _make_client([TimeoutError(), TimeoutError()])
         channel = MagicMock()
 
         await ctpp_init_sequence(
-            client, channel, "SB000006", 1, "SB0000061", 0x10000000,
+            client,
+            channel,
+            "SB000006",
+            1,
+            "SB0000061",
+            0x10000000,
             send_ack=False,
         )
 

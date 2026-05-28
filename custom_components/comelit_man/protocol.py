@@ -11,8 +11,8 @@ from typing import Any, cast
 from .const import VIDEO_FPS, VIDEO_HEIGHT, VIDEO_WIDTH
 
 HEADER_SIZE = 8  # Fixed header size: magic(2) + length(2) + request_id(2) + padding(2)
-HEADER_MAGIC = b"\x00\x06" # All messages start with these magic bytes
-ICONA_BRIDGE_PORT = 64100 # TCP port for ICONA Bridge protocol
+HEADER_MAGIC = b"\x00\x06"  # All messages start with these magic bytes
+ICONA_BRIDGE_PORT = 64100  # TCP port for ICONA Bridge protocol
 NULL = b"\x00"
 
 # CTPP init message magic byte sequences (from PCAP analysis)
@@ -41,9 +41,7 @@ def encode_header(body_length: int, request_id: int = 0) -> bytes:
     """
     header = bytearray(HEADER_SIZE)
     header[0:2] = HEADER_MAGIC
-    header[2:4] = struct.pack(
-        "<H", body_length
-    )  # '<H' = little-endian unsigned short
+    header[2:4] = struct.pack("<H", body_length)  # '<H' = little-endian unsigned short
     header[4:6] = struct.pack("<H", request_id)
     header[6:8] = b"\x00\x00"  # Required padding
     return bytes(header)
@@ -66,7 +64,7 @@ def encode_json_message(msg: dict[str, Any], request_id: int) -> bytes:
 
 def decode_json_body(body: bytes) -> dict[str, Any]:
     """Decode a JSON body."""
-    return cast(dict[str, Any], json.loads(body.decode("utf-8")))
+    return cast("dict[str, Any]", json.loads(body.decode("utf-8")))
 
 
 def _null_terminated(s: str) -> bytes:
@@ -157,9 +155,7 @@ def is_json_body(body: bytes) -> bool:
 # --- Door open binary payloads ---
 
 
-def encode_ctpp_init(
-    apt_address: str, apt_subaddress: int, timestamp: int | None = None
-) -> bytes:
+def encode_ctpp_init(apt_address: str, apt_subaddress: int, timestamp: int | None = None) -> bytes:
     """Encode the CTPP channel init message (Phase A of door open).
 
     Sent after opening the CTPP channel. The timestamp fills bytes 2-5 and
@@ -267,9 +263,9 @@ ACTION_CALL_INIT = 0x0028
 ACTION_CODEC_NEG = 0x0008
 ACTION_RTPC_LINK = 0x000A
 ACTION_VIDEO_CONFIG = 0x001A
-ACTION_PEER = 0x0070       # "accept call" / peer (answer sequence msg 1)
-ACTION_CONFIG_ACK = 0x000E # supplemental config ACK (answer sequence msg 2)
-ACTION_HANGUP = 0x002D     # '-' = hangup
+ACTION_PEER = 0x0070  # "accept call" / peer (answer sequence msg 1)
+ACTION_CONFIG_ACK = 0x000E  # supplemental config ACK (answer sequence msg 2)
+ACTION_HANGUP = 0x002D  # '-' = hangup
 ACTION_DOOR_OPEN = 0x000D  # door open on active video CTPP channel (PCAP-verified)
 
 
@@ -341,9 +337,7 @@ def encode_call_ack(caller: str, callee: str, timestamp: int) -> bytes:
     )
 
 
-def encode_rtpc_link(
-    caller: str, callee: str, rtpc_req_id: int, timestamp: int, refresh: bool = False
-) -> bytes:
+def encode_rtpc_link(caller: str, callee: str, rtpc_req_id: int, timestamp: int, refresh: bool = False) -> bytes:
     """Encode RTPC link message (4018 prefix, action 0x000A).
 
     Links an RTPC channel to the active call.
@@ -434,9 +428,7 @@ def encode_video_config(
     )
 
 
-def encode_call_response_ack(
-    caller: str, callee: str, timestamp: int, prefix: int = 0x1800
-) -> bytes:
+def encode_call_response_ack(caller: str, callee: str, timestamp: int, prefix: int = 0x1800) -> bytes:
     """Encode an ACK for a device call response.
 
     From PCAP: ACK messages (0x1800/0x1820 prefix) use a shorter format
@@ -512,8 +504,8 @@ def encode_answer_peer(
     buf = bytearray()
     buf += struct.pack("<H", prefix)
     buf += struct.pack("<I", timestamp)
-    buf += struct.pack(">H", 2 + len(inner_payload))   # inner_len = action(2) + payload
-    buf += struct.pack(">H", ACTION_PEER)               # 0x0070
+    buf += struct.pack(">H", 2 + len(inner_payload))  # inner_len = action(2) + payload
+    buf += struct.pack(">H", ACTION_PEER)  # 0x0070
     buf += inner_payload
     buf += b"\xff\xff\xff\xff"
     buf += _null_terminated(caller)
@@ -535,9 +527,9 @@ def encode_answer_config_ack(
     buf = bytearray()
     buf += struct.pack("<H", 0x1840)
     buf += struct.pack("<I", timestamp)
-    buf += struct.pack(">H", 0x0002)               # inner_len = 2 (just the padding)
-    buf += struct.pack(">H", ACTION_CONFIG_ACK)    # 0x000E
-    buf += b"\x00\x00"                             # 2 bytes padding
+    buf += struct.pack(">H", 0x0002)  # inner_len = 2 (just the padding)
+    buf += struct.pack(">H", ACTION_CONFIG_ACK)  # 0x000E
+    buf += b"\x00\x00"  # 2 bytes padding
     buf += b"\xff\xff\xff\xff"
     buf += _null_terminated(caller)
     buf += entrance_addr.encode("ascii") + b"\x00\x00"
@@ -558,13 +550,13 @@ def encode_door_open_during_video(
 
     Body structure (48 bytes):
       [LE16 0x1840] [LE32 counter] [BE16 0x000D] [BE16 0x002D]
-      [entrance_addr padded to 10] [LE32 relay_index] [4× 0xFF]
+      [entrance_addr padded to 10] [LE32 relay_index] [4x 0xFF]
       [our_addr padded to 10] [entrance_addr padded to 10]
 
     relay_index: the door's output_index from the device config (PCAP shows 1
     for the only door on that device; use door.output_index for our device).
     """
-    our_b  = our_addr.encode("ascii").ljust(10, b"\x00")[:10]
+    our_b = our_addr.encode("ascii").ljust(10, b"\x00")[:10]
     entr_b = entrance_addr.encode("ascii").ljust(10, b"\x00")[:10]
     buf = bytearray()
     buf += struct.pack("<H", 0x1840)

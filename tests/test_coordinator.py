@@ -1,4 +1,4 @@
-﻿"""Unit tests for ComelitLocalCoordinator — no device or HA runtime needed."""
+"""Unit tests for ComelitLocalCoordinator — no device or HA runtime needed."""
 
 from __future__ import annotations
 
@@ -261,6 +261,7 @@ class TestCallbackRegistration:
         coord._video_session = mock_session
 
         fired = []
+
         async def cb():
             fired.append(True)
 
@@ -278,6 +279,7 @@ class TestCallbackRegistration:
         coord._video_session = mock_session
 
         fired = []
+
         async def cb():
             fired.append(True)
 
@@ -311,6 +313,7 @@ class TestCallbackRegistration:
         mock_session.start = AsyncMock()
 
         fired = []
+
         async def cb():
             fired.append(True)
 
@@ -333,6 +336,7 @@ class TestCallbackRegistration:
         coord._video_session = mock_session
 
         fired = []
+
         async def cb():
             fired.append(True)
 
@@ -349,6 +353,7 @@ class TestCallbackRegistration:
         mock_session.start = AsyncMock()
 
         fired = []
+
         async def cb():
             fired.append(True)
 
@@ -401,9 +406,7 @@ class TestAsyncOpenDoor:
         ) as mock_open_door:
             await coord.async_open_door(door)
 
-        mock_open_door.assert_awaited_once_with(
-            coord.host, coord.port, coord.token, coord._client, coord._config, door
-        )
+        mock_open_door.assert_awaited_once_with(coord.host, coord.port, coord.token, coord._client, coord._config, door)
 
     @pytest.mark.asyncio
     async def test_raises_when_not_connected(self):
@@ -419,6 +422,7 @@ class TestAsyncOpenDoor:
     async def test_door_open_error_triggers_reauth_when_auth_cause(self):
         """async_open_door calls async_start_reauth when DoorOpenError has AuthenticationError cause."""
         from custom_components.comelit_man.exceptions import AuthenticationError, DoorOpenError
+
         coord = _make_coordinator(with_client=True)
         door = MagicMock()
 
@@ -442,6 +446,7 @@ class TestAsyncOpenDoor:
     async def test_door_open_error_no_reauth_when_not_auth_cause(self):
         """DoorOpenError without AuthenticationError cause does not trigger reauth."""
         from custom_components.comelit_man.exceptions import DoorOpenError
+
         coord = _make_coordinator(with_client=True)
         door = MagicMock()
 
@@ -521,7 +526,9 @@ def _setup_patches(client, config, mock_rtsp, *, with_vip=False, mock_vip=None):
     patches = [
         patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=client),
         patch("custom_components.comelit_man.coordinator.authenticate", new_callable=AsyncMock),
-        patch("custom_components.comelit_man.coordinator.get_device_config", new_callable=AsyncMock, return_value=config),
+        patch(
+            "custom_components.comelit_man.coordinator.get_device_config", new_callable=AsyncMock, return_value=config
+        ),
         patch("custom_components.comelit_man.coordinator.register_push", new_callable=AsyncMock),
         patch("custom_components.comelit_man.coordinator.LocalRtspServer", return_value=mock_rtsp),
         patch("custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"),
@@ -545,7 +552,13 @@ class TestCoordinatorSetupVIP:
 
         ps = _setup_patches(client, config, mock_rtsp, with_vip=True, mock_vip=mock_vip)
         with (
-            ps[0], ps[1], ps[2], ps[3], ps[4], ps[5], ps[6],
+            ps[0],
+            ps[1],
+            ps[2],
+            ps[3],
+            ps[4],
+            ps[5],
+            ps[6],
             patch.object(coord, "_open_ctpp_channels", new_callable=AsyncMock, return_value=0x12000000),
         ):
             await coord.async_setup()
@@ -564,7 +577,12 @@ class TestCoordinatorSetupVIP:
 
         ps = _setup_patches(client, config, mock_rtsp)
         with (
-            ps[0], ps[1], ps[2], ps[3], ps[4], ps[5],
+            ps[0],
+            ps[1],
+            ps[2],
+            ps[3],
+            ps[4],
+            ps[5],
             patch.object(coord, "_open_ctpp_channels", new_callable=AsyncMock, side_effect=RuntimeError("ctpp fail")),
         ):
             await coord.async_setup()
@@ -625,7 +643,11 @@ class TestReconnectCleanup:
         with (
             patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=new_client),
             patch("custom_components.comelit_man.coordinator.authenticate", new_callable=AsyncMock),
-            patch("custom_components.comelit_man.coordinator.get_device_config", new_callable=AsyncMock, return_value=config),
+            patch(
+                "custom_components.comelit_man.coordinator.get_device_config",
+                new_callable=AsyncMock,
+                return_value=config,
+            ),
             patch("custom_components.comelit_man.coordinator.register_push", new_callable=AsyncMock),
             patch.object(coord, "_start_keepalive"),
         ):
@@ -650,7 +672,11 @@ class TestReconnectCleanup:
         with (
             patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=new_client),
             patch("custom_components.comelit_man.coordinator.authenticate", new_callable=AsyncMock),
-            patch("custom_components.comelit_man.coordinator.get_device_config", new_callable=AsyncMock, return_value=config),
+            patch(
+                "custom_components.comelit_man.coordinator.get_device_config",
+                new_callable=AsyncMock,
+                return_value=config,
+            ),
             patch("custom_components.comelit_man.coordinator.register_push", new_callable=AsyncMock),
             patch.object(coord, "_start_keepalive"),
         ):
@@ -672,7 +698,11 @@ class TestReconnectCleanup:
         with (
             patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=new_client),
             patch("custom_components.comelit_man.coordinator.authenticate", new_callable=AsyncMock),
-            patch("custom_components.comelit_man.coordinator.get_device_config", new_callable=AsyncMock, return_value=config),
+            patch(
+                "custom_components.comelit_man.coordinator.get_device_config",
+                new_callable=AsyncMock,
+                return_value=config,
+            ),
             patch("custom_components.comelit_man.coordinator.register_push", new_callable=AsyncMock),
             patch.object(coord, "_start_keepalive"),
         ):
@@ -693,7 +723,11 @@ class TestReconnectCleanup:
         with (
             patch("custom_components.comelit_man.coordinator.IconaBridgeClient", return_value=new_client),
             patch("custom_components.comelit_man.coordinator.authenticate", new_callable=AsyncMock),
-            patch("custom_components.comelit_man.coordinator.get_device_config", new_callable=AsyncMock, return_value=config),
+            patch(
+                "custom_components.comelit_man.coordinator.get_device_config",
+                new_callable=AsyncMock,
+                return_value=config,
+            ),
             patch("custom_components.comelit_man.coordinator.register_push", new_callable=AsyncMock),
             patch.object(coord, "_open_ctpp_channels", new_callable=AsyncMock, return_value=0x12000000),
             patch("custom_components.comelit_man.coordinator.VipEventListener", return_value=mock_vip),
@@ -884,9 +918,7 @@ class TestVideoCallEnd:
     async def test_auto_restart_video_logs_general_exception(self):
         """_auto_restart_video logs non-RuntimeError exceptions (lines 464-465)."""
         coord = _make_coordinator(with_client=True)
-        with patch.object(
-            coord, "async_start_video", new_callable=AsyncMock, side_effect=ValueError("boom")
-        ):
+        with patch.object(coord, "async_start_video", new_callable=AsyncMock, side_effect=ValueError("boom")):
             await coord._auto_restart_video()  # must not raise
 
     @pytest.mark.asyncio
@@ -1157,6 +1189,7 @@ class TestUpdateDataAuthFail:
     @pytest.mark.asyncio
     async def test_auth_failure_creates_issue_and_raises(self):
         from custom_components.comelit_man.exceptions import AuthenticationError
+
         coord = _make_coordinator()
         coord._client = None
 

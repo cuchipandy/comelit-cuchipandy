@@ -27,16 +27,21 @@ _TOKEN = "test_token"
 
 def _make_door(*, is_actuator: bool = False) -> Door:
     return Door(
-        id=0, index=0, name="Test Door",
-        apt_address="SB100001", output_index=1,
+        id=0,
+        index=0,
+        name="Test Door",
+        apt_address="SB100001",
+        output_index=1,
         is_actuator=is_actuator,
     )
 
 
 def _make_config() -> DeviceConfig:
     return DeviceConfig(
-        apt_address="SB000006", apt_subaddress=1,
-        doors=[], cameras=[],
+        apt_address="SB000006",
+        apt_subaddress=1,
+        doors=[],
+        cameras=[],
     )
 
 
@@ -46,7 +51,7 @@ def _make_client(*, ctpp_channel=None) -> MagicMock:
     client.get_channel = MagicMock(return_value=ctpp_channel)
     client.open_channel = AsyncMock(return_value=MagicMock())
     client.send_binary = AsyncMock()
-    client.read_response = AsyncMock(return_value=None)
+    client.read_response = AsyncMock(return_value=b"\x00" * 8)
     client.remove_channel = MagicMock()
     client.connect = AsyncMock()
     client.disconnect = AsyncMock()

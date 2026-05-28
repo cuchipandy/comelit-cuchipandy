@@ -50,7 +50,7 @@ Home Assistant custom component for the **Comelit 6701W** WiFi video intercom. C
 | `custom_components/comelit_man/rtp_receiver.py` | UDP/TCP RTP receiver: H.264 FU-A→PyAV→JPEG + PCMA audio routing |
 | `tests/conftest.py` | Shared fixtures |
 | `tests/test_*.py` | One file per source module |
-| `.github/workflows/validate.yml` | CI: HACS, hassfest, ruff, pytest |
+| `.github/workflows/validate.yml` | CI: HACS, hassfest, ruff check+format, mypy, pytest |
 
 Platforms: `BUTTON, CAMERA, EVENT` | Min HA: `2026.1.0` | Repo: `https://github.com/mnestrud/comelit-man`
 
@@ -110,7 +110,7 @@ COMELIT_HOST=192.168.113.12 COMELIT_TOKEN=<token> .venv\Scripts\pytest tests/tes
 
 | Workflow | Trigger | What it checks |
 |----------|---------|----------------|
-| `validate.yml` | Every push + PR | HACS → hassfest → ruff → pytest |
+| `validate.yml` | Every push + PR | HACS → hassfest → ruff check (E,F,I,UP,B,SIM,ASYNC,LOG,RUF,TC,PERF,C90,S) → ruff format --check → mypy → pytest |
 
 ---
 
@@ -275,6 +275,9 @@ logger:
 - Compact JSON serialization (`separators=(",",":")`) for all messages to device
 - Exceptions defined in `exceptions.py`
 - pytest with `asyncio_mode = "auto"` — async test functions work without decorator
+- Ruff enforces: E, F, I, UP, B, SIM, ASYNC, LOG, RUF, TC, PERF, C90 (max 15), S — see `pyproject.toml` for per-file ignores
+- `ruff format` is the formatter (HA standard); run locally before committing
+- Logging uses `%`-style lazy args (not f-strings) per HA guidelines
 
 ---
 

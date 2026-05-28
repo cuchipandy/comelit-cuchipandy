@@ -1,4 +1,4 @@
-﻿"""Unit tests for ComelitDoorbellEvent entity."""
+"""Unit tests for ComelitDoorbellEvent entity."""
 
 from __future__ import annotations
 
@@ -24,8 +24,10 @@ def _make_entity() -> ComelitDoorbellEvent:
     entity._entry_id = "test_entry_id"
     entity._attr_unique_id = "test_entry_id_doorbell"
     entity._events = []
+
     def _fake_trigger_event(event_type, data=None):  # stub _trigger_event for real HA
         entity._events.append({"event_type": event_type, "data": data or {}})
+
     entity._trigger_event = _fake_trigger_event
     entity.async_write_ha_state = MagicMock()
     return entity
@@ -47,6 +49,7 @@ class TestDoorbellEventMeta:
 
     def test_event_types(self):
         from custom_components.comelit_man.event import EVENT_TYPES
+
         assert "doorbell_ring" in EVENT_TYPES
         assert "missed_call" in EVENT_TYPES
 
@@ -122,6 +125,7 @@ class TestDoorbellEventInit:
     @pytest.mark.asyncio
     async def test_async_setup_entry_adds_entity(self):
         from custom_components.comelit_man.event import async_setup_entry
+
         hass = MagicMock()
         entry = MagicMock()
         entry.runtime_data = MagicMock()

@@ -79,9 +79,7 @@ class TestParseConfig:
         assert config.doors[1].index == 1
 
     def test_parses_actuator_doors(self):
-        actuators = [
-            {"id": 3, "name": "Gate", "apt-address": "SB100003", "output-index": 0, "module-index": 1}
-        ]
+        actuators = [{"id": 3, "name": "Gate", "apt-address": "SB100003", "output-index": 0, "module-index": 1}]
         data = _vip_payload(actuator_book=actuators)
         config = _parse_config(data)
         assert len(config.doors) == 1
@@ -101,7 +99,13 @@ class TestParseConfig:
 
     def test_parses_cameras(self):
         cameras = [
-            {"id": 1, "name": "Cam1", "rtsp-url": "rtsp://192.168.1.50/live", "rtsp-user": "admin", "rtsp-password": "pass"}
+            {
+                "id": 1,
+                "name": "Cam1",
+                "rtsp-url": "rtsp://192.168.1.50/live",
+                "rtsp-user": "admin",
+                "rtsp-password": "pass",
+            }
         ]
         data = _vip_payload(camera_book=cameras)
         config = _parse_config(data)
@@ -146,9 +150,7 @@ class TestGetDeviceConfig:
         channel = MagicMock()
         client = MagicMock()
         client.open_channel = AsyncMock(return_value=channel)
-        client.send_json = AsyncMock(
-            return_value={"response-code": 500, "error": "internal"}
-        )
+        client.send_json = AsyncMock(return_value={"response-code": 500, "error": "internal"})
 
         with pytest.raises(ProtocolError, match="500"):
             await get_device_config(client)

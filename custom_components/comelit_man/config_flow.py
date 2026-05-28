@@ -50,9 +50,7 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Return the options flow handler."""
         return ComelitLocalOptionsFlow(config_entry)
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
@@ -70,7 +68,9 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 try:
                     token = await extract_token(host, password, http_port, self.hass)
                 except Exception as err:
-                    _LOGGER.exception("Token extraction failed: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    _LOGGER.exception(
+                        "Token extraction failed: %s", err
+                    )  # nosemgrep: python-logger-credential-disclosure
                     errors["base"] = "token_extraction_failed"
 
             if not errors:
@@ -107,9 +107,7 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_dhcp(
-        self, discovery_info: DhcpServiceInfo
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> config_entries.ConfigFlowResult:
         """Handle DHCP discovery of a Comelit device."""
         host = discovery_info.ip
         mac = discovery_info.macaddress
@@ -136,7 +134,9 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 try:
                     token = await extract_token(host, password, http_port, self.hass)
                 except Exception as err:
-                    _LOGGER.exception("Token extraction failed: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    _LOGGER.exception(
+                        "Token extraction failed: %s", err
+                    )  # nosemgrep: python-logger-credential-disclosure
                     errors["base"] = "token_extraction_failed"
 
             if not errors:
@@ -176,9 +176,7 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_reauth(
-        self, entry_data: dict[str, Any]
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> config_entries.ConfigFlowResult:
         """Initiate reauthentication when the stored token becomes invalid."""
         return await self.async_step_reauth_confirm()
 
@@ -200,7 +198,9 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 try:
                     token = await extract_token(host, password, http_port, self.hass)
                 except Exception as err:
-                    _LOGGER.exception("Token extraction failed during reauth: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    _LOGGER.exception(
+                        "Token extraction failed during reauth: %s", err
+                    )  # nosemgrep: python-logger-credential-disclosure
                     errors["base"] = "token_extraction_failed"
 
             if not errors:
@@ -234,9 +234,7 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_reconfigure(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> config_entries.ConfigFlowResult:
         """Handle reconfiguration — change host/port/token without delete+re-add."""
         errors: dict[str, str] = {}
         reconfigure_entry = self._get_reconfigure_entry()
@@ -253,7 +251,9 @@ class ComelitLocalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 try:
                     token = await extract_token(host, password, http_port, self.hass)
                 except Exception as err:
-                    _LOGGER.exception("Token extraction failed during reconfigure: %s", err)  # nosemgrep: python-logger-credential-disclosure
+                    _LOGGER.exception(
+                        "Token extraction failed during reconfigure: %s", err
+                    )  # nosemgrep: python-logger-credential-disclosure
                     errors["base"] = "token_extraction_failed"
 
             if not errors:
@@ -304,9 +304,7 @@ class ComelitLocalOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self._config_entry = config_entry
 
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> config_entries.ConfigFlowResult:
         """Show the options form."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
@@ -314,7 +312,5 @@ class ComelitLocalOptionsFlow(config_entries.OptionsFlow):
         current = self._config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True)
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_ENABLE_NOTIFICATIONS, default=current): bool}
-            ),
+            data_schema=vol.Schema({vol.Required(CONF_ENABLE_NOTIFICATIONS, default=current): bool}),
         )

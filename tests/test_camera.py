@@ -1,4 +1,4 @@
-﻿"""Tests for camera entities — placeholder image and stream_source gating."""
+"""Tests for camera entities — placeholder image and stream_source gating."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from custom_components.comelit_man.placeholder import PLACEHOLDER_JPEG
 # Placeholder JPEG validity
 # ---------------------------------------------------------------------------
 
+
 def test_placeholder_jpeg_valid():
     """Placeholder JPEG starts with SOI and ends with EOI markers."""
     assert PLACEHOLDER_JPEG[:2] == b"\xff\xd8"  # SOI
@@ -29,6 +30,7 @@ def test_placeholder_jpeg_valid():
 # ---------------------------------------------------------------------------
 # Camera fixture
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def camera() -> ComelitIntercomCamera:
@@ -44,6 +46,7 @@ def camera() -> ComelitIntercomCamera:
 # ---------------------------------------------------------------------------
 # async_camera_image
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_camera_image_returns_placeholder_when_no_session(camera):
@@ -80,6 +83,7 @@ async def test_camera_image_returns_frame_when_active(camera):
 # ---------------------------------------------------------------------------
 # stream_source
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_stream_source_returns_url_when_session_active(camera):
@@ -122,6 +126,7 @@ async def test_stream_source_returns_url_when_ready_event_fires(camera):
 # ---------------------------------------------------------------------------
 # Doorbell push guard
 # ---------------------------------------------------------------------------
+
 
 def test_on_push_skips_when_already_active(camera):
     """_on_push does not start video if session already active."""
@@ -297,6 +302,7 @@ async def test_stop_ha_stream_handles_stop_exception(camera):
 @pytest.mark.asyncio
 async def test_camera_setup_entry_creates_external_and_intercom(camera):
     from custom_components.comelit_man.camera import async_setup_entry
+
     cam_model = CameraModel(id=1, name="Cam1", rtsp_url="rtsp://cam/stream")
     coordinator = MagicMock()
     coordinator._video_ready_event = asyncio.Event()
@@ -318,6 +324,7 @@ async def test_camera_setup_entry_creates_external_and_intercom(camera):
 @pytest.mark.asyncio
 async def test_camera_setup_entry_no_config_returns_early():
     from custom_components.comelit_man.camera import async_setup_entry
+
     coordinator = MagicMock()
     coordinator.device_config = None
     entry = MagicMock()
@@ -330,6 +337,7 @@ async def test_camera_setup_entry_no_config_returns_early():
 @pytest.mark.asyncio
 async def test_camera_setup_entry_skips_camera_without_rtsp():
     from custom_components.comelit_man.camera import async_setup_entry
+
     cam_no_url = CameraModel(id=2, name="NoCam", rtsp_url="")
     coordinator = MagicMock()
     coordinator._video_ready_event = asyncio.Event()
