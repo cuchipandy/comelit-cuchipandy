@@ -112,7 +112,7 @@
   },
   "exceptions": {
     "door_open_failed": {
-      "message": "Failed to open door '{door}'"
+      "message": "Failed to open door {door}"
     },
     "video_call_failed": {
       "message": "Failed to start video call"
@@ -124,15 +124,7 @@
   "issues": {
     "auth_failed": {
       "title": "Authentication failed",
-      "description": "Comelit Man cannot connect to {name} — the token is invalid or expired. Re-authenticate to reconnect.",
-      "fix_flow": {
-        "step": {
-          "confirm": {
-            "title": "Re-authenticate",
-            "description": "Go to **Settings → Integrations → Comelit Man** and choose **Re-authenticate**."
-          }
-        }
-      }
+      "description": "Comelit Man cannot connect to {name} — the token is invalid or expired. Go to Settings → Integrations → Comelit Man and choose Re-authenticate."
     }
   }
 }

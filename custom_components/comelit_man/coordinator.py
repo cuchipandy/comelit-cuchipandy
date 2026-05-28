@@ -621,7 +621,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 self.hass,
                 DOMAIN,
                 "auth_failed",
-                is_fixable=True,
+                is_fixable=False,
                 is_persistent=True,
                 severity=ir.IssueSeverity.ERROR,
                 translation_key="auth_failed",
