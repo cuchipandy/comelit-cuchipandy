@@ -221,7 +221,7 @@ async def _rtsp_play(
     url: str,
     port: int,
 ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-    """Connect a minimal RTSP client and negotiate through to PLAY.
+    """Connect a minimal RTSP client and negotiate through to PLAY (video only).
 
     Returns (reader, writer) with the stream positioned just after the
     PLAY 200 OK response — subsequent reads will be interleaved RTP frames.
@@ -242,16 +242,15 @@ async def _rtsp_play(
     resp = await _read_rtsp_response(reader)
     assert b"200 OK" in resp, f"DESCRIBE failed: {resp[:200]}"
 
-    # SETUP video track (interleaved TCP)
+    # SETUP video track (interleaved TCP, ch 0-1)
     writer.write(
-        f"SETUP {base_url}/track0 RTSP/1.0\r\n"
+        f"SETUP {base_url}/video RTSP/1.0\r\n"
         f"CSeq: 3\r\n"
         f"Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n".encode()
     )
     await writer.drain()
     resp = await _read_rtsp_response(reader)
-    assert b"200 OK" in resp, f"SETUP failed: {resp[:200]}"
-    # Extract session ID from response
+    assert b"200 OK" in resp, f"SETUP video failed: {resp[:200]}"
     session_id = "87654321"
     for line in resp.split(b"\r\n"):
         if line.lower().startswith(b"session:"):
@@ -265,6 +264,68 @@ async def _rtsp_play(
     assert b"200 OK" in resp, f"PLAY failed: {resp[:200]}"
 
     return reader, writer
+
+
+async def _rtsp_play_with_audio(
+    port: int,
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, int, int]:
+    """Connect a minimal RTSP client, SETUP both video and audio, and PLAY.
+
+    Returns (reader, writer, video_channel, audio_channel).
+    video RTP → channel 0, video RTCP → channel 1
+    audio RTP → channel 2, audio RTCP → channel 3
+    Caller is responsible for closing the writer.
+    """
+    reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=5.0)
+    base_url = f"rtsp://127.0.0.1:{port}/intercom"
+
+    # OPTIONS
+    writer.write(f"OPTIONS {base_url} RTSP/1.0\r\nCSeq: 1\r\n\r\n".encode())
+    await writer.drain()
+    resp = await _read_rtsp_response(reader)
+    assert b"200 OK" in resp, f"OPTIONS failed: {resp[:200]}"
+
+    # DESCRIBE — save SDP to verify audio track present
+    writer.write(f"DESCRIBE {base_url} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode())
+    await writer.drain()
+    resp = await _read_rtsp_response(reader)
+    assert b"200 OK" in resp, f"DESCRIBE failed: {resp[:200]}"
+    assert b"m=audio" in resp, f"SDP has no audio track:\n{resp.decode(errors='replace')}"
+    assert b"PCMA/8000" in resp, "SDP audio track is not PCMA/8000"
+
+    # SETUP video track (ch 0-1)
+    writer.write(
+        f"SETUP {base_url}/video RTSP/1.0\r\n"
+        f"CSeq: 3\r\n"
+        f"Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n\r\n".encode()
+    )
+    await writer.drain()
+    resp = await _read_rtsp_response(reader)
+    assert b"200 OK" in resp, f"SETUP video failed: {resp[:200]}"
+    session_id = "87654321"
+    for line in resp.split(b"\r\n"):
+        if line.lower().startswith(b"session:"):
+            session_id = line.split(b":", 1)[1].strip().split(b";")[0].decode()
+            break
+
+    # SETUP audio track (ch 2-3)
+    writer.write(
+        f"SETUP {base_url}/audio RTSP/1.0\r\n"
+        f"CSeq: 4\r\n"
+        f"Session: {session_id}\r\n"
+        f"Transport: RTP/AVP/TCP;unicast;interleaved=2-3\r\n\r\n".encode()
+    )
+    await writer.drain()
+    resp = await _read_rtsp_response(reader)
+    assert b"200 OK" in resp, f"SETUP audio failed: {resp[:200]}"
+
+    # PLAY
+    writer.write(f"PLAY {base_url} RTSP/1.0\r\nCSeq: 5\r\nSession: {session_id}\r\n\r\n".encode())
+    await writer.drain()
+    resp = await _read_rtsp_response(reader)
+    assert b"200 OK" in resp, f"PLAY failed: {resp[:200]}"
+
+    return reader, writer, 0, 2  # video_ch=0, audio_ch=2
 
 
 # ---------------------------------------------------------------------------
@@ -366,12 +427,11 @@ async def test_rtsp_server_streams_video():
         version = (rtp[0] >> 6) & 0x3
         assert version == 2, f"RTP version expected 2, got {version}"
         pt = rtp[1] & 0x7F
-        # PT 96 is H.264 dynamic (per SDP); passthrough loop may use same PT
-        assert pt in (96, 97), f"Unexpected RTP payload type {pt}"
+        assert pt == 96, f"Unexpected RTP payload type {pt} (expected 96 for H.264)"
 
         # Send TEARDOWN
         base_url = f"rtsp://127.0.0.1:{port}/intercom"
-        rtsp_writer.write(f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode())
+        rtsp_writer.write(f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 6\r\nSession: 87654321\r\n\r\n".encode())
         await rtsp_writer.drain()
 
     finally:
@@ -449,8 +509,99 @@ async def test_video_then_door_open():
         assert len(post_frames) == 5, "Video stopped after door open"
 
         rtsp_writer.write(
-            f"TEARDOWN rtsp://127.0.0.1:{port}/intercom RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
+            f"TEARDOWN rtsp://127.0.0.1:{port}/intercom RTSP/1.0\r\nCSeq: 6\r\nSession: 87654321\r\n\r\n".encode()
         )
+        await rtsp_writer.drain()
+
+    finally:
+        if rtsp_writer:
+            rtsp_writer.close()
+        if session:
+            await session.stop()
+        await rtsp_server.stop()
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_rtsp_server_streams_audio():
+    """Verify RTSP audio track is negotiated; confirm device sends no audio on HA-initiated calls.
+
+    Live device test confirmed: the device does NOT send PCMA on HA-initiated video
+    calls regardless of the answer sequence sent (tested single peer/accept, full
+    3-message sequence, and waited through the 30s renewal cycle — 0 PT=8 packets).
+    Audio only flows during inbound calls triggered by a visitor pressing the doorbell.
+
+    This test validates:
+      - SDP advertises m=audio PCMA/8000 (RTSP plumbing is wired up)
+      - Video flows normally alongside the audio track negotiation
+      - audio_packet_count == 0 (documents the confirmed device behavior)
+
+    Wake the intercom screen before running. Requires HA integration stopped.
+    """
+    if not COMELIT_TOKEN:
+        pytest.skip("COMELIT_TOKEN not set")
+
+    from custom_components.comelit_man.client import IconaBridgeClient
+    from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.config_reader import get_device_config
+    from custom_components.comelit_man.video_call import VideoCallSession
+    from custom_components.comelit_man.rtsp_server import LocalRtspServer
+
+    client = IconaBridgeClient(COMELIT_HOST)
+    await client.connect()
+    rtsp_server = LocalRtspServer()
+    session = None
+    rtsp_writer = None
+    try:
+        await authenticate(client, COMELIT_TOKEN)
+        config = await get_device_config(client)
+        await _setup_ctpp(client, config)
+
+        url = await rtsp_server.start()
+        port = rtsp_server._rtsp_port
+        print(f"\nRTSP server at {url}")
+
+        session = VideoCallSession(client, config, auto_timeout=False, rtsp_server=rtsp_server)
+        receiver = await session.start()
+        rtsp_server.mark_ready()
+
+        # SETUP both video (ch 0) and audio (ch 2), then PLAY
+        rtsp_reader, rtsp_writer, video_ch, audio_ch = await _rtsp_play_with_audio(port)
+        print(f"RTSP negotiated: video_ch={video_ch} audio_ch={audio_ch}")
+
+        # Collect video frames for 10s to confirm video pipeline is healthy.
+        video_frames: list[bytes] = []
+        deadline = asyncio.get_event_loop().time() + 10.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                channel, payload = await asyncio.wait_for(
+                    _read_interleaved_frame(rtsp_reader), timeout=2.0
+                )
+            except TimeoutError:
+                continue
+            if channel == video_ch:
+                video_frames.append(payload)
+            if len(video_frames) >= 10:
+                break
+
+        print(f"Collected {len(video_frames)} video frames")
+        print(f"RTP receiver audio_packet_count={receiver._audio_packet_count}")
+
+        # Video must be flowing.
+        assert video_frames, "No video RTP frames received"
+
+        # The device does NOT send PCMA on HA-initiated calls — confirmed by live
+        # device test over 40s including the first renewal cycle. Audio only flows
+        # during inbound calls triggered by a visitor pressing the doorbell.
+        # This assertion documents the known behavior; if it ever fails it means
+        # the device started sending audio and the RTSP plumbing should be validated.
+        assert receiver._audio_packet_count == 0, (
+            f"Unexpected audio: device sent {receiver._audio_packet_count} PT=8 packets — "
+            "update this test and validate the audio pipeline"
+        )
+
+        base_url = f"rtsp://127.0.0.1:{port}/intercom"
+        rtsp_writer.write(f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 6\r\nSession: 87654321\r\n\r\n".encode())
         await rtsp_writer.drain()
 
     finally:

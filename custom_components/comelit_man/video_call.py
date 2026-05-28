@@ -835,11 +835,13 @@ class VideoCallSession:
         call_counter: int,
         media_req_id: int,
     ) -> None:
-        """Send the initial peer/accept (0x70) to signal "call answered".
+        """Send peer/accept (0x1840/0x0070) to signal "call answered".
 
-        PCAP-verified: pressing the phone button in the app sends a single
-        0x1840/0x0070 message. Audio does NOT flow yet — audio only starts
-        at the next renewal cycle when _inline_reestablish sends 0x1860/0x0070.
+        PCAP-verified: the Android app sends a single 0x1840/0x0070 message after
+        video starts. Tested against real device: the device does NOT send PCMA audio
+        in response to this message on HA-initiated calls — audio only flows during
+        inbound calls triggered by a visitor pressing the doorbell. The RTSP audio
+        plumbing is kept in place for when that flow is added.
 
         Uses _ctpp_lock and self._call_counter (not the stale call_counter
         parameter) so the counter is in sync with keepalive ACKs that
@@ -851,7 +853,7 @@ class VideoCallSession:
                 ctpp,
                 encode_answer_peer(our_addr, entrance_addr, self._call_counter),
             )
-        _LOGGER.info("Answer peer/accept (0x70) sent — audio should start within ~400ms")
+        _LOGGER.info("Answer peer/accept (0x70) sent")
 
     async def async_open_door_on_ctpp(self, our_addr: str, entrance_addr: str, relay_index: int) -> None:
         """Open a door by sending 0x1840/0x000D on the active video CTPP channel.

@@ -103,11 +103,13 @@ class TestBuildSdp:
         sdp = server._build_sdp()
         assert "a=control:video" in sdp
 
-    def test_sdp_no_audio_track(self):
-        """SDP is video-only; audio is muxed on the same RTP stream."""
+    def test_sdp_audio_track(self):
+        """SDP includes G.711 PCMA audio track from the device."""
         server = LocalRtspServer()
         sdp = server._build_sdp()
-        assert "m=audio" not in sdp
+        assert "m=audio" in sdp
+        assert "PCMA/8000" in sdp
+        assert "a=control:audio" in sdp
 
     def test_sdp_uses_bind_host(self):
         server = LocalRtspServer(bind_host="192.168.1.1")
@@ -345,7 +347,7 @@ class TestLifecycle:
         server = LocalRtspServer()
         await server.start()
         try:
-            assert len(server._feed_tasks) == 2
+            assert len(server._feed_tasks) == 3
             for task in server._feed_tasks:
                 assert not task.done()
         finally:
@@ -1390,8 +1392,8 @@ class TestAudioFeedLoop:
         assert rtp[1] & 0x7F == 8  # PT=8 PCMA
 
     @pytest.mark.asyncio
-    async def test_timeout_sends_silence(self):
-        """Timeout from queue.get sends PCMA silence frame."""
+    async def test_timeout_does_not_send_silence(self):
+        """Timeout from queue.get does not broadcast anything — no silence padding."""
         server = LocalRtspServer()
         server._running = True
         broadcasts: list[bytes] = []
@@ -1411,7 +1413,7 @@ class TestAudioFeedLoop:
         with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
             await server._audio_feed_loop()
 
-        assert len(broadcasts) >= 1
+        assert len(broadcasts) == 0
 
     @pytest.mark.asyncio
     async def test_cancelled_error_exits_cleanly(self):

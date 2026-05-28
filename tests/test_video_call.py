@@ -982,6 +982,125 @@ class TestCtppMonitorLoopRarePaths:
 
 
 # ---------------------------------------------------------------------------
+# Group F0 — _send_answer_sequence (single peer/accept message)
+# ---------------------------------------------------------------------------
+
+
+class TestSendAnswerSequence:
+    """Tests for _send_answer_sequence — single 0x1840/0x0070 peer/accept message.
+
+    Live device test confirmed: sending more messages (video_reconfig, config_ack)
+    does not trigger audio on HA-initiated calls. Device only sends PCMA during
+    inbound calls triggered by a visitor pressing the doorbell.
+    """
+
+    @staticmethod
+    def _make_session(initial_counter: int = 0x01000000) -> VideoCallSession:
+        session = VideoCallSession.__new__(VideoCallSession)
+        session._ctpp_lock = asyncio.Lock()
+        session._call_counter = initial_counter
+        return session
+
+    @pytest.mark.asyncio
+    async def test_sends_exactly_one_message(self):
+        """Exactly one send_binary call — the peer/accept message."""
+        session = self._make_session()
+        sent: list[bytes] = []
+        mock_client = MagicMock()
+        mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
+
+        await session._send_answer_sequence(
+            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
+        )
+
+        assert len(sent) == 1, f"Expected 1 message, got {len(sent)}"
+
+    @pytest.mark.asyncio
+    async def test_message_is_peer_accept_0x0070(self):
+        """The single message must be peer/accept (action 0x0070 at bytes[8:10])."""
+        import struct
+
+        session = self._make_session()
+        sent: list[bytes] = []
+        mock_client = MagicMock()
+        mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
+
+        await session._send_answer_sequence(
+            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
+        )
+
+        # encode_answer_peer format: inner_len at bytes[6:8], action at bytes[8:10]
+        action = struct.unpack_from(">H", sent[0], 8)[0]
+        assert action == 0x0070, f"Expected peer/accept action 0x0070, got 0x{action:04X}"
+
+    @pytest.mark.asyncio
+    async def test_message_uses_0x1840_prefix(self):
+        """Initial (non-renewal) peer/accept uses prefix 0x1840."""
+        import struct
+
+        session = self._make_session()
+        sent: list[bytes] = []
+        mock_client = MagicMock()
+        mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
+
+        await session._send_answer_sequence(
+            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
+        )
+
+        prefix = struct.unpack_from("<H", sent[0], 0)[0]
+        assert prefix == 0x1840, f"Expected prefix 0x1840, got 0x{prefix:04X}"
+
+    @pytest.mark.asyncio
+    async def test_counter_increments_once(self):
+        """_call_counter must increment by exactly one _CTR_INCR_BYTE4."""
+        session = self._make_session(initial_counter=0x00500000)
+        mock_client = MagicMock()
+        mock_client.send_binary = AsyncMock()
+
+        await session._send_answer_sequence(
+            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
+        )
+
+        assert session._call_counter == 0x00500000 + _CTR_INCR_BYTE4
+
+    @pytest.mark.asyncio
+    async def test_uses_entrance_addr_as_callee(self):
+        """Peer/accept must address entrance_addr as the callee."""
+        session = self._make_session()
+        sent: list[bytes] = []
+        mock_client = MagicMock()
+        mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
+
+        await session._send_answer_sequence(
+            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
+        )
+
+        assert b"SB100001\x00\x00" in sent[0], "Peer/accept must use entrance_addr as callee"
+
+    @pytest.mark.asyncio
+    async def test_uses_live_call_counter_not_stale_param(self):
+        """Must use self._call_counter (updated by monitor loop), not the stale call_counter param."""
+        session = self._make_session(initial_counter=0x00900000)
+        sent: list[bytes] = []
+        mock_client = MagicMock()
+        mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
+
+        # Pass a stale call_counter that differs from session._call_counter
+        stale_counter = 0x00100000
+        await session._send_answer_sequence(
+            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", stale_counter, 0x1234
+        )
+
+        import struct
+        embedded_ts = struct.unpack_from("<I", sent[0], 2)[0]
+        expected_ts = 0x00900000 + _CTR_INCR_BYTE4
+        assert embedded_ts == expected_ts, (
+            f"Embedded timestamp 0x{embedded_ts:08X} should be based on live counter "
+            f"0x{expected_ts:08X}, not stale param 0x{stale_counter + _CTR_INCR_BYTE4:08X}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Group F — _run_answer_sequence wrapper exception
 # ---------------------------------------------------------------------------
 
