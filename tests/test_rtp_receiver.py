@@ -1,4 +1,4 @@
-﻿"""Unit tests for RtpReceiver — no device or PyAV needed."""
+"""Unit tests for RtpReceiver — no device or PyAV needed."""
 
 from __future__ import annotations
 
@@ -32,8 +32,10 @@ class TestStartMediaStart:
     async def test_start_returns_port(self):
         """start() calls start_control + start_media and returns port — lines 206-208."""
         receiver = RtpReceiver("127.0.0.1")
-        with patch.object(receiver, "start_control", new_callable=AsyncMock, return_value=54321), \
-             patch.object(receiver, "start_media", new_callable=AsyncMock):
+        with (
+            patch.object(receiver, "start_control", new_callable=AsyncMock, return_value=54321),
+            patch.object(receiver, "start_media", new_callable=AsyncMock),
+        ):
             port = await receiver.start()
         assert port == 54321
 
@@ -236,6 +238,7 @@ class TestDecodeLoopRobustness:
         with patch.dict(sys.modules, {"av": fake_av, "av.error": fake_av.error}):
             # Enable debug so the verbose timing branch (lines 541-542) also runs
             import logging
+
             logger = logging.getLogger("custom_components.comelit_man.rtp_receiver")
             old_level = logger.level
             logger.setLevel(logging.DEBUG)
@@ -444,8 +447,7 @@ class TestReceiveTcpRtp:
         """RTP with no payload after header returns without queuing — line 309."""
         receiver = RtpReceiver("127.0.0.1")
         # 12-byte header only, PT=96 (video, not audio), no payload
-        pkt = bytes([0x80, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-                     0x00, 0x00, 0x00, 0x01])
+        pkt = bytes([0x80, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01])
         receiver.receive_tcp_rtp(pkt)
         assert receiver._media_packet_count == 1
         assert receiver._nal_queue.empty()
@@ -514,7 +516,7 @@ class TestProcessRtp:
         # FU-A start: nal_type=28 (0x1C), fu_header=start_bit(0x80)|type(5)=0x85
         fu_indicator = 0x7C  # forbidden=0, nal_ref=3, type=28
         fu_header_start = 0x85  # S=1, E=0, R=0, type=5 (IDR)
-        start_fragment = bytes([fu_indicator, fu_header_start]) + b"\xAA" * 10
+        start_fragment = bytes([fu_indicator, fu_header_start]) + b"\xaa" * 10
         rtp_start = _make_rtp_packet(start_fragment)
         receiver._process_rtp(rtp_start)
 
@@ -524,7 +526,7 @@ class TestProcessRtp:
 
         # FU-A end: S=0, E=1
         fu_header_end = 0x45  # S=0, E=1, type=5
-        end_fragment = bytes([fu_indicator, fu_header_end]) + b"\xBB" * 8
+        end_fragment = bytes([fu_indicator, fu_header_end]) + b"\xbb" * 8
         rtp_end = _make_rtp_packet(end_fragment)
         receiver._process_rtp(rtp_end)
 
@@ -539,7 +541,7 @@ class TestProcessRtp:
 
         fu_indicator = 0x7C
         fu_header_cont = 0x05  # S=0, E=0 — continuation
-        cont_fragment = bytes([fu_indicator, fu_header_cont]) + b"\xCC" * 5
+        cont_fragment = bytes([fu_indicator, fu_header_cont]) + b"\xcc" * 5
         rtp_cont = _make_rtp_packet(cont_fragment)
         receiver._process_rtp(rtp_cont)
 
@@ -548,7 +550,7 @@ class TestProcessRtp:
     def test_fua_too_short_ignored(self):
         """FU-A packet with only 1 byte of NAL data is ignored."""
         receiver = RtpReceiver("127.0.0.1")
-        nal_payload = b"\x7C"  # type=28, no FU header
+        nal_payload = b"\x7c"  # type=28, no FU header
         rtp = _make_rtp_packet(nal_payload)
         receiver._process_rtp(rtp)
         assert receiver._nal_queue.empty()
@@ -625,14 +627,22 @@ class TestGetJpegFrame:
         receiver = RtpReceiver("127.0.0.1")
         fake_jpeg = b"\xff\xd8cached\xff\xd9"
         receiver._latest_frame = fake_jpeg
-        result = await receiver.get_jpeg_frame(timeout=0.05)
+        try:
+            async with asyncio.timeout(0.05):
+                result = await receiver.get_jpeg_frame()
+        except TimeoutError:
+            result = receiver.latest_frame
         assert result is fake_jpeg
 
     @pytest.mark.asyncio
     async def test_returns_none_on_timeout_with_no_frame(self):
         """Returns None on timeout when no frame has ever been decoded."""
         receiver = RtpReceiver("127.0.0.1")
-        result = await receiver.get_jpeg_frame(timeout=0.05)
+        try:
+            async with asyncio.timeout(0.05):
+                result = await receiver.get_jpeg_frame()
+        except TimeoutError:
+            result = receiver.latest_frame
         assert result is None
 
     @pytest.mark.asyncio
@@ -656,7 +666,7 @@ class TestGetJpegFrame:
             receiver._frame_event.set()
 
         asyncio.create_task(produce())
-        result = await receiver.get_jpeg_frame(timeout=1.0)
+        result = await receiver.get_jpeg_frame()
         # get_jpeg_frame clears the event first, so it must wait for produce()
         assert result is new_jpeg
 
@@ -672,7 +682,7 @@ class TestGetJpegFrame:
             receiver._frame_event.set()
 
         asyncio.create_task(produce())
-        result = await receiver.get_jpeg_frame(timeout=1.0)
+        result = await receiver.get_jpeg_frame()
         assert result is fake_jpeg
 
     def test_latest_frame_property(self):
@@ -702,11 +712,7 @@ class TestStartControl:
 
         with patch(
             "asyncio.get_running_loop",
-            return_value=MagicMock(
-                create_datagram_endpoint=AsyncMock(
-                    return_value=(mock_transport, mock_protocol)
-                )
-            ),
+            return_value=MagicMock(create_datagram_endpoint=AsyncMock(return_value=(mock_transport, mock_protocol))),
         ):
             port = await receiver.start_control()
 
@@ -725,11 +731,7 @@ class TestStartControl:
 
         with patch(
             "asyncio.get_running_loop",
-            return_value=MagicMock(
-                create_datagram_endpoint=AsyncMock(
-                    return_value=(mock_transport, MagicMock())
-                )
-            ),
+            return_value=MagicMock(create_datagram_endpoint=AsyncMock(return_value=(mock_transport, MagicMock()))),
         ):
             await receiver.start_control()
 
@@ -811,6 +813,7 @@ class TestKeepaliveLoop:
         # Clean up
         receiver._keepalive_task.cancel()
         import contextlib
+
         with contextlib.suppress(asyncio.CancelledError):
             await receiver._keepalive_task
 
@@ -848,6 +851,7 @@ class TestFrameToJpeg:
 
     def test_frame_to_jpeg_returns_none_when_save_writes_nothing(self):
         """_frame_to_jpeg returns None when image.save() writes zero bytes."""
+
         class EmptyImage:
             def save(self, buf, **kwargs):
                 pass  # write nothing
@@ -861,6 +865,7 @@ class TestFrameToJpeg:
 
     def test_frame_to_jpeg_returns_none_on_exception(self):
         """_frame_to_jpeg returns None when to_image() raises."""
+
         class BrokenFrame:
             def to_image(self):
                 raise RuntimeError("boom")
@@ -907,13 +912,22 @@ class TestAttachRtspQueues:
 
 def _make_audio_rtp(pt: int, payload: bytes = b"\xd5" * 160) -> bytes:
     """Build a minimal valid RTP packet with the given payload type."""
-    header = bytes([
-        0x80,       # V=2, P=0, X=0, CC=0
-        pt & 0x7F,  # M=0, PT
-        0x00, 0x01, # seq=1
-        0x00, 0x00, 0x00, 0x00,  # timestamp=0
-        0x00, 0x00, 0x00, 0x01,  # ssrc=1
-    ])
+    header = bytes(
+        [
+            0x80,  # V=2, P=0, X=0, CC=0
+            pt & 0x7F,  # M=0, PT
+            0x00,
+            0x01,  # seq=1
+            0x00,
+            0x00,
+            0x00,
+            0x00,  # timestamp=0
+            0x00,
+            0x00,
+            0x00,
+            0x01,  # ssrc=1
+        ]
+    )
     return header + payload
 
 
@@ -975,6 +989,7 @@ class TestAudioRouting:
     def test_audio_debug_log_for_first_packets(self, caplog):
         """Debug log fires for first ≤3 audio packets when DEBUG enabled — line 360."""
         import logging
+
         receiver = RtpReceiver("127.0.0.1")
         audio_q: asyncio.Queue[bytes] = asyncio.Queue()
         receiver.attach_rtsp_queues(asyncio.Queue(), audio_q)
@@ -1013,9 +1028,7 @@ class TestAudioRouting:
         receiver.attach_rtsp_queues(nal_q, audio_q)
 
         # PT=96 video packet with SPS NAL
-        header = bytes([0x80, 0x60, 0x00, 0x01,
-                        0x00, 0x00, 0x00, 0x00,
-                        0x00, 0x00, 0x00, 0x01])
+        header = bytes([0x80, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01])
         rtp = header + b"\x67" + b"\x00" * 10
         receiver._process_rtp(rtp)
 
@@ -1032,6 +1045,7 @@ class TestMaybeLogDrops:
     def test_rate_limited_returns_early(self):
         """Second call within 5s returns early — line 421."""
         import time
+
         receiver = RtpReceiver("127.0.0.1")
         receiver._rtsp_nal_drops = 5
         # Simulate a very recent last-log time so the rate limit fires
@@ -1046,19 +1060,20 @@ class TestMaybeLogDrops:
 
 class TestWaitForFirstVideo:
     @pytest.mark.asyncio
-    async def test_returns_true_when_event_already_set(self):
-        """Event pre-set → returns True immediately — lines 438-442."""
+    async def test_returns_immediately_when_event_already_set(self):
+        """Event pre-set → returns immediately without blocking."""
         receiver = RtpReceiver("127.0.0.1")
         receiver._first_video_nal_event.set()
-        result = await receiver.wait_for_first_video(timeout=1.0)
-        assert result is True
+        async with asyncio.timeout(0.1):
+            await receiver.wait_for_first_video()
 
     @pytest.mark.asyncio
-    async def test_returns_false_on_timeout(self):
-        """Event never set → returns False after timeout — lines 443-444."""
+    async def test_raises_timeout_error_when_no_event(self):
+        """Event never set → caller-supplied asyncio.timeout raises TimeoutError."""
         receiver = RtpReceiver("127.0.0.1")
-        result = await receiver.wait_for_first_video(timeout=0.01)
-        assert result is False
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(0.01):
+                await receiver.wait_for_first_video()
 
 
 # ---------------------------------------------------------------------------
@@ -1098,6 +1113,7 @@ class TestIdrTracking:
 
     def test_log_idr_arrival_records_monotonic_time(self):
         import time
+
         receiver = RtpReceiver("127.0.0.1")
         before = time.monotonic()
         receiver._log_idr_arrival(0)
@@ -1106,6 +1122,7 @@ class TestIdrTracking:
 
     def test_log_idr_arrival_interval_zero_on_first_call(self, caplog):
         import logging
+
         receiver = RtpReceiver("127.0.0.1")
         with caplog.at_level(logging.DEBUG, logger="custom_components.comelit_man.rtp_receiver"):
             receiver._log_idr_arrival(0x10000000)
@@ -1114,6 +1131,7 @@ class TestIdrTracking:
 
     def test_log_idr_arrival_logs_at_debug(self, caplog):
         import logging
+
         receiver = RtpReceiver("127.0.0.1")
         with caplog.at_level(logging.DEBUG, logger="custom_components.comelit_man.rtp_receiver"):
             receiver._log_idr_arrival(0xABCDEF01)

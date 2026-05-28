@@ -1,4 +1,4 @@
-﻿"""Unit tests for token extraction — no device needed."""
+"""Unit tests for token extraction — no device needed."""
 
 from __future__ import annotations
 

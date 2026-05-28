@@ -13,6 +13,7 @@ message on the video CTPP channel) and is NOT used here.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .auth import authenticate
@@ -34,6 +35,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Timeout for the per-door (door_init / actuator_init).
 DOOR_TIMEOUT = 2.0
+
 
 async def open_door(
     host: str,
@@ -68,6 +70,7 @@ async def open_door(
             client.remove_channel("CTPP")
             await client.disconnect()
 
+
 async def open_ctpp_channel(
     client: IconaBridgeClient,
     config: DeviceConfig,
@@ -82,9 +85,7 @@ async def open_ctpp_channel(
     our_addr = f"{apt_addr}{apt_sub}"
 
     try:
-        channel = await client.open_channel(
-            "CTPP", ChannelType.CTPP, extra_data=our_addr
-        )
+        channel = await client.open_channel("CTPP", ChannelType.CTPP, extra_data=our_addr)
         await ctpp_init_sequence(
             client,
             channel,
@@ -99,12 +100,8 @@ async def open_ctpp_channel(
     except Exception as e:
         raise DoorOpenError(f"Failed to open door: {e}") from e
 
-async def _open_door_on_channel(
-    client: IconaBridgeClient,
-    channel: Channel,
-    apt_addr: str,
-    door: Door
-) -> None:
+
+async def _open_door_on_channel(client: IconaBridgeClient, channel: Channel, apt_addr: str, door: Door) -> None:
     """Regular-door open sequence on an already-initialized CTPP channel.
 
     OPEN + CONFIRM  →  door_init + drain 2 resps  →  OPEN + CONFIRM.
@@ -117,16 +114,19 @@ async def _open_door_on_channel(
     # Phase C: Door-specific init
     await client.send_binary(channel, init_open)
     for i in range(2):
-        resp = await client.read_response(channel, timeout=DOOR_TIMEOUT)
-        _LOGGER.debug(
-            "door_init resp %d: %s", i + 1, resp.hex() if resp else "timeout",
-        )
+        try:
+            async with asyncio.timeout(DOOR_TIMEOUT):
+                resp = await client.read_response(channel)
+            _LOGGER.debug("door_init resp %d: %s", i + 1, resp.hex())
+        except TimeoutError:
+            _LOGGER.debug("door_init resp %d: timeout", i + 1)
 
     # Phase D: Open door + confirm again
     if door.is_actuator is False:
         await _send_open_and_confirm(client, channel, apt_addr, door)
     else:
         await _send_open_and_confirm_for_actuator(client, channel, apt_addr, door)
+
 
 async def _send_open_and_confirm(
     client: IconaBridgeClient,
@@ -143,7 +143,8 @@ async def _send_open_and_confirm(
         channel,
         encode_open_door(MessageType.OPEN_DOOR_CONFIRM, apt_addr, door.output_index, door.apt_address),
     )
-    
+
+
 async def _send_open_and_confirm_for_actuator(
     client: IconaBridgeClient,
     channel: Channel,

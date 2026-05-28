@@ -35,16 +35,15 @@ _DOORBELL_CARD_PATH = str(Path(__file__).parent / "www" / "comelit-doorbell-card
 
 async def _register_static_path(hass: HomeAssistant, url: str, path: str) -> None:
     """Register a static file path."""
-    from homeassistant.components.http import StaticPathConfig  # noqa: PLC0415
-    await hass.http.async_register_static_paths(
-        [StaticPathConfig(url, path, cache_headers=True)]
-    )
+    from homeassistant.components.http import StaticPathConfig
+
+    await hass.http.async_register_static_paths([StaticPathConfig(url, path, cache_headers=True)])
 
 
 async def _init_resource(hass: HomeAssistant, url: str, version: str) -> None:
     """Add the card JS to Lovelace resources (GUI mode) or extra JS (YAML mode)."""
-    from homeassistant.components.frontend import add_extra_js_url  # noqa: PLC0415
-    from homeassistant.components.lovelace.resources import ResourceStorageCollection  # noqa: PLC0415
+    from homeassistant.components.frontend import add_extra_js_url
+    from homeassistant.components.lovelace.resources import ResourceStorageCollection
 
     lovelace = hass.data["lovelace"]
     resources: ResourceStorageCollection = (
@@ -60,9 +59,7 @@ async def _init_resource(hass: HomeAssistant, url: str, version: str) -> None:
         if item["url"].endswith(version):
             return  # already up to date
         if isinstance(resources, ResourceStorageCollection):
-            await resources.async_update_item(
-                item["id"], {"res_type": "module", "url": url_versioned}
-            )
+            await resources.async_update_item(item["id"], {"res_type": "module", "url": url_versioned})
         else:
             item["url"] = url_versioned
         _LOGGER.debug("Updated Lovelace resource to %s", url_versioned)
@@ -89,9 +86,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-async def async_setup_entry(
-    hass: HomeAssistant, entry: ComelitLocalConfigEntry
-) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ComelitLocalConfigEntry) -> bool:
     """Set up Comelit Local from a config entry."""
     coordinator = ComelitLocalCoordinator(
         hass,
@@ -104,17 +99,11 @@ async def async_setup_entry(
     try:
         await coordinator.async_setup()
     except AuthenticationError as err:
-        raise ConfigEntryAuthFailed(
-            f"Authentication failed for Comelit device: {err}"
-        ) from err
+        raise ConfigEntryAuthFailed(f"Authentication failed for Comelit device: {err}") from err
     except (TimeoutError, ComelitConnectionError, OSError) as err:
-        raise ConfigEntryNotReady(
-            f"Failed to connect to Comelit device: {err}"
-        ) from err
+        raise ConfigEntryNotReady(f"Failed to connect to Comelit device: {err}") from err
     except Exception as err:
-        raise ConfigEntryNotReady(
-            f"Unexpected error setting up Comelit device: {err}"
-        ) from err
+        raise ConfigEntryNotReady(f"Unexpected error setting up Comelit device: {err}") from err
 
     entry.runtime_data = coordinator
 
@@ -125,16 +114,12 @@ async def async_setup_entry(
     return True
 
 
-async def _async_options_updated(
-    hass: HomeAssistant, entry: ComelitLocalConfigEntry
-) -> None:
+async def _async_options_updated(hass: HomeAssistant, entry: ComelitLocalConfigEntry) -> None:
     """Reload the entry when options change."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: ComelitLocalConfigEntry
-) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: ComelitLocalConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
@@ -142,9 +127,7 @@ async def async_unload_entry(
     return unload_ok
 
 
-async def async_remove_entry(
-    hass: HomeAssistant, entry: ComelitLocalConfigEntry
-) -> None:
+async def async_remove_entry(hass: HomeAssistant, entry: ComelitLocalConfigEntry) -> None:
     """Clean up when a config entry is fully removed.
 
     The device-side push registration (DEVICE_TOKEN) has no unregistration

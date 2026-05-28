@@ -135,8 +135,8 @@ class LocalRtspServer:
         # discontinuity".  We translate device_ts → output_ts by adding a
         # running offset that is recalculated on each new call to keep the
         # output stream monotonic and aligned with wall clock.
-        self._video_ts_out: int = 0          # last output timestamp sent
-        self._video_ts_offset: int = 0       # device_ts + offset = output_ts
+        self._video_ts_out: int = 0  # last output timestamp sent
+        self._video_ts_offset: int = 0  # device_ts + offset = output_ts
         self._last_device_ts: int | None = None  # last device_ts seen
         # Explicit "rebase on next frame" flag.  Set by reset() to force
         # the feed loop to recompute the offset on the next device NAL
@@ -172,6 +172,11 @@ class LocalRtspServer:
         # backoff when it reconnects into an in-flight handshake.
         self._ready_event: asyncio.Event = asyncio.Event()
 
+        # Set by _broadcast_rtp on the first packet of each call; cleared
+        # by reset() between calls.  The RTCP SR loop awaits this before
+        # emitting its first Sender Report.
+        self._first_media_event: asyncio.Event = asyncio.Event()
+
     @property
     def rtsp_url(self) -> str:
         """Return the RTSP URL that go2rtc should connect to."""
@@ -204,7 +209,7 @@ class LocalRtspServer:
         # path automatically if rtp_queue is not fed.
         # Audio is disabled — the device's answer sequence isn't producing
         # PCMA in this deployment, and the silent keepalive at 1 Hz caused
-        # HLS/WebRTC stutters by ticking the 8 kHz audio clock 50× too slow.
+        # HLS/WebRTC stutters by ticking the 8 kHz audio clock 50x too slow.
         self._feed_tasks = [
             asyncio.create_task(self._video_rtp_passthrough_loop()),
             asyncio.create_task(self._rtcp_sr_loop()),
@@ -292,7 +297,7 @@ class LocalRtspServer:
             with contextlib.suppress(asyncio.QueueEmpty):
                 self.audio_queue.get_nowait()
                 drained_audio += 1
-        # Audio–video sync bootstrap: the audio feed loop has been advancing
+        # Audio-video sync bootstrap: the audio feed loop has been advancing
         # `_audio_ts` by 160 per 20 ms of silence since server start, so by
         # the time the first video frame of a new call arrives, audio is N
         # seconds ahead on the muxer's output timeline.  Without correction
@@ -320,6 +325,7 @@ class LocalRtspServer:
         self._video_octet_count = 0
         self._audio_pkt_count = 0
         self._audio_octet_count = 0
+        self._first_media_event.clear()
 
         # Re-prime all already-connected clients with current SPS+PPS.
         # New clients are primed in _prime_client_with_parameter_sets called
@@ -332,17 +338,18 @@ class LocalRtspServer:
         _LOGGER.debug(
             "RTSP server reset (renewal=%s): drained %d NALs + %d audio, "
             "%d client(s) remain, video_ts_out seeded to 0x%08X",
-            renewal, drained_nal, drained_audio,
-            len(self._active_clients), self._video_ts_out,
+            renewal,
+            drained_nal,
+            drained_audio,
+            len(self._active_clients),
+            self._video_ts_out,
         )
 
     # ------------------------------------------------------------------
     # RTSP request handling
     # ------------------------------------------------------------------
 
-    async def _handle_client(
-        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
-    ) -> None:
+    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle one RTSP client connection."""
         peer = writer.get_extra_info("peername")
         client_host = peer[0] if peer else "unknown"
@@ -360,36 +367,14 @@ class LocalRtspServer:
 
         try:
             while self._running:
-                raw = b""
-                while b"\r\n\r\n" not in raw:
-                    chunk = await asyncio.wait_for(reader.read(4096), timeout=30.0)
-                    if not chunk:
-                        return
-                    raw += chunk
-
-                request = raw.decode("utf-8", errors="replace")
-                lines = [ln for ln in request.split("\r\n") if ln]
-                if not lines:
+                parsed = await self._read_rtsp_request(reader)
+                if parsed is None:
                     break
-
-                parts = lines[0].split()
-                if len(parts) < 2:
-                    break
-                method, url = parts[0], parts[1]
-
-                headers: dict[str, str] = {}
-                for line in lines[1:]:
-                    if ":" in line:
-                        k, v = line.split(":", 1)
-                        headers[k.strip().lower()] = v.strip()
-
-                cseq = headers.get("cseq", "1")
+                method, url, headers, cseq = parsed
                 _LOGGER.debug("RTSP %s from %s", method, client_host)
 
                 if method == "OPTIONS":
-                    self._send(writer, cseq, extra=(
-                        "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN\r\n"
-                    ))
+                    self._send(writer, cseq, extra=("Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN\r\n"))
 
                 elif method == "DESCRIBE":
                     sdp = self._build_sdp().encode()
@@ -398,20 +383,16 @@ class LocalRtspServer:
                         f"CSeq: {cseq}\r\n"
                         f"Content-Type: application/sdp\r\n"
                         f"Content-Length: {len(sdp)}\r\n"
-                        f"\r\n".encode() + sdp
+                        f"\r\n".encode()
+                        + sdp
                     )
                     await writer.drain()
 
                 elif method == "SETUP":
                     transport_hdr = headers.get("transport", "")
                     is_audio = "/audio" in url or "track2" in url
-                    transport_resp = self._parse_setup(
-                        transport_hdr, is_audio, client, client_host
-                    )
-                    self._send(writer, cseq, extra=(
-                        f"Session: {self._session_id}\r\n"
-                        f"{transport_resp}\r\n"
-                    ))
+                    transport_resp = self._parse_setup(transport_hdr, is_audio, client, client_host)
+                    self._send(writer, cseq, extra=(f"Session: {self._session_id}\r\n{transport_resp}\r\n"))
 
                 elif method == "PLAY":
                     # Stall PLAY until a video session is actually flowing.
@@ -428,26 +409,19 @@ class LocalRtspServer:
                             client_host,
                         )
                         try:
-                            await asyncio.wait_for(
-                                self._ready_event.wait(), timeout=10.0
-                            )
+                            await asyncio.wait_for(self._ready_event.wait(), timeout=10.0)
                         except TimeoutError:
-                            writer.write(
-                                f"RTSP/1.0 503 Service Unavailable\r\n"
-                                f"CSeq: {cseq}\r\n\r\n".encode()
-                            )
+                            writer.write(f"RTSP/1.0 503 Service Unavailable\r\nCSeq: {cseq}\r\n\r\n".encode())
                             await writer.drain()
                             break
-                    self._send(writer, cseq, extra=(
-                        f"Session: {self._session_id}\r\n"
-                        f"Range: npt=0.000-\r\n"
-                    ))
+                    self._send(writer, cseq, extra=(f"Session: {self._session_id}\r\nRange: npt=0.000-\r\n"))
                     self._active_clients.append(client)
                     registered = True
                     _LOGGER.info(
-                        "RTSP streaming → %s (video_ch=%s audio_ch=%s) "
-                        "[%d client(s) total]",
-                        client_host, client.video_ch, client.audio_ch,
+                        "RTSP streaming → %s (video_ch=%s audio_ch=%s) [%d client(s) total]",
+                        client_host,
+                        client.video_ch,
+                        client.audio_ch,
                         len(self._active_clients),
                     )
                     # Immediately send in-band SPS + PPS to this client so
@@ -465,10 +439,7 @@ class LocalRtspServer:
                     break
 
                 else:
-                    writer.write(
-                        f"RTSP/1.0 405 Method Not Allowed\r\nCSeq: {cseq}\r\n\r\n"
-                        .encode()
-                    )
+                    writer.write(f"RTSP/1.0 405 Method Not Allowed\r\nCSeq: {cseq}\r\n\r\n".encode())
                     await writer.drain()
 
         except (TimeoutError, ConnectionError):
@@ -481,10 +452,35 @@ class LocalRtspServer:
                     self._active_clients.remove(client)
                 _LOGGER.debug(
                     "RTSP client disconnected from %s [%d client(s) remain]",
-                    client_host, len(self._active_clients),
+                    client_host,
+                    len(self._active_clients),
                 )
             with contextlib.suppress(Exception):
                 writer.close()
+
+    async def _read_rtsp_request(self, reader: asyncio.StreamReader) -> tuple[str, str, dict[str, str], str] | None:
+        """Read one complete RTSP request. Returns (method, url, headers, cseq) or None on close."""
+        raw = b""
+        while b"\r\n\r\n" not in raw:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout=30.0)
+            if not chunk:
+                return None
+            raw += chunk
+        request = raw.decode("utf-8", errors="replace")
+        lines = [ln for ln in request.split("\r\n") if ln]
+        if not lines:
+            return None
+        parts = lines[0].split()
+        if len(parts) < 2:
+            return None
+        method, url = parts[0], parts[1]
+        headers: dict[str, str] = {}
+        for line in lines[1:]:
+            if ":" in line:
+                k, v = line.split(":", 1)
+                headers[k.strip().lower()] = v.strip()
+        cseq = headers.get("cseq", "1")
+        return method, url, headers, cseq
 
     def _parse_setup(
         self,
@@ -590,20 +586,23 @@ class LocalRtspServer:
             if not nal:
                 continue
             pkt = _build_rtp(
-                pt=96, seq=self._video_seq, ts=self._video_ts_out,
-                ssrc=self._video_ssrc, payload=nal, marker=False,
+                pt=96,
+                seq=self._video_seq,
+                ts=self._video_ts_out,
+                ssrc=self._video_ssrc,
+                payload=nal,
+                marker=False,
             )
             self._video_seq = (self._video_seq + 1) & 0xFFFF
             try:
-                client.writer.write(
-                    struct.pack("!BBH", 0x24, client.video_ch, len(pkt)) + pkt
-                )
+                client.writer.write(struct.pack("!BBH", 0x24, client.video_ch, len(pkt)) + pkt)
             except Exception:
                 _LOGGER.debug("Failed to prime client with parameter sets", exc_info=True)
                 return
         _LOGGER.debug(
             "Primed RTSP client with SPS (%d B) + PPS (%d B)",
-            len(self._latest_sps), len(self._latest_pps),
+            len(self._latest_sps),
+            len(self._latest_pps),
         )
 
     def _send_initial_sr_to_client(self, client: _TcpClient) -> None:
@@ -619,27 +618,25 @@ class LocalRtspServer:
         if client.video_ch is not None and self._video_pkt_count > 0:
             sr = _build_rtcp_sr(
                 ssrc=self._video_ssrc,
-                ntp_secs=ntp_secs, ntp_frac=ntp_frac,
+                ntp_secs=ntp_secs,
+                ntp_frac=ntp_frac,
                 rtp_ts=self._last_video_rtp_ts,
                 pkt_count=self._video_pkt_count,
                 octet_count=self._video_octet_count,
             )
             with contextlib.suppress(Exception):
-                client.writer.write(
-                    struct.pack("!BBH", 0x24, client.video_ch + 1, len(sr)) + sr
-                )
+                client.writer.write(struct.pack("!BBH", 0x24, client.video_ch + 1, len(sr)) + sr)
         if client.audio_ch is not None and self._audio_pkt_count > 0:
             sr = _build_rtcp_sr(
                 ssrc=self._audio_ssrc,
-                ntp_secs=ntp_secs, ntp_frac=ntp_frac,
+                ntp_secs=ntp_secs,
+                ntp_frac=ntp_frac,
                 rtp_ts=self._last_audio_rtp_ts,
                 pkt_count=self._audio_pkt_count,
                 octet_count=self._audio_octet_count,
             )
             with contextlib.suppress(Exception):
-                client.writer.write(
-                    struct.pack("!BBH", 0x24, client.audio_ch + 1, len(sr)) + sr
-                )
+                client.writer.write(struct.pack("!BBH", 0x24, client.audio_ch + 1, len(sr)) + sr)
 
     def _broadcast_rtp(self, pkt: bytes, is_video: bool) -> None:
         """Send one RTP packet to every registered TCP client + UDP client.
@@ -648,6 +645,7 @@ class LocalRtspServer:
         the active list so we don't keep writing into a closed socket and
         leaking error log spam every 20ms.
         """
+        self._first_media_event.set()
         dead: list[_TcpClient] = []
         for c in list(self._active_clients):
             ch = c.video_ch if is_video else c.audio_ch
@@ -698,9 +696,7 @@ class LocalRtspServer:
         try:
             while self._running:
                 try:
-                    rtp = await asyncio.wait_for(
-                        self.rtp_queue.get(), timeout=2.0
-                    )
+                    rtp = await asyncio.wait_for(self.rtp_queue.get(), timeout=2.0)
                 except TimeoutError:
                     fallback_count += 1
                     if fallback_count >= 3 and not self.nal_queue.empty():
@@ -731,7 +727,7 @@ class LocalRtspServer:
                 marker_bit = rtp[1] & 0x80
                 new_header = struct.pack(
                     "!BBHII",
-                    rtp[0],           # version/padding/extension/CC
+                    rtp[0],  # version/padding/extension/CC
                     marker_bit | 96,  # marker from device + PT=96
                     self._video_seq,
                     self._video_ts_out,
@@ -751,14 +747,12 @@ class LocalRtspServer:
     def _translate_video_ts(self, device_ts: int) -> None:
         """Translate device RTP timestamp to monotonic output timestamp."""
         if self._last_device_ts is None or self._video_ts_rebase_pending:
-            self._video_ts_offset = (
-                self._video_ts_out + 1 - device_ts
-            ) & 0xFFFFFFFF
+            self._video_ts_offset = (self._video_ts_out + 1 - device_ts) & 0xFFFFFFFF
             self._video_ts_rebase_pending = False
             _LOGGER.debug(
-                "Video timestamp rebased: device=0x%08X seed=0x%08X "
-                "new_out=0x%08X offset=0x%08X",
-                device_ts, self._video_ts_out,
+                "Video timestamp rebased: device=0x%08X seed=0x%08X new_out=0x%08X offset=0x%08X",
+                device_ts,
+                self._video_ts_out,
                 (device_ts + self._video_ts_offset) & 0xFFFFFFFF,
                 self._video_ts_offset,
             )
@@ -766,13 +760,11 @@ class LocalRtspServer:
             forward = (device_ts - self._last_device_ts) & 0xFFFFFFFF
             if forward > 0x80000000:
                 prev_out = self._video_ts_out
-                self._video_ts_offset = (
-                    self._video_ts_out + 1 - device_ts
-                ) & 0xFFFFFFFF
+                self._video_ts_offset = (self._video_ts_out + 1 - device_ts) & 0xFFFFFFFF
                 _LOGGER.debug(
-                    "Video timestamp rebased (backward): device=0x%08X "
-                    "prev_out=0x%08X new_out=0x%08X offset=0x%08X",
-                    device_ts, prev_out,
+                    "Video timestamp rebased (backward): device=0x%08X prev_out=0x%08X new_out=0x%08X offset=0x%08X",
+                    device_ts,
+                    prev_out,
                     (device_ts + self._video_ts_offset) & 0xFFFFFFFF,
                     self._video_ts_offset,
                 )
@@ -816,9 +808,7 @@ class LocalRtspServer:
         try:
             while self._running:
                 try:
-                    device_ts, nal = await asyncio.wait_for(
-                        self.nal_queue.get(), timeout=2.0
-                    )
+                    device_ts, nal = await asyncio.wait_for(self.nal_queue.get(), timeout=2.0)
                 except TimeoutError:
                     continue
 
@@ -853,30 +843,23 @@ class LocalRtspServer:
                 #      seeded from the audio clock for A/V alignment.
                 #   3. device_ts jumped backwards (device clock reset
                 #      mid-stream without our reset() being called).
-                if (
-                    self._last_device_ts is None
-                    or self._video_ts_rebase_pending
-                ):
-                    self._video_ts_offset = (
-                        self._video_ts_out + 1 - device_ts
-                    ) & 0xFFFFFFFF
+                if self._last_device_ts is None or self._video_ts_rebase_pending:
+                    self._video_ts_offset = (self._video_ts_out + 1 - device_ts) & 0xFFFFFFFF
                     self._video_ts_rebase_pending = False
                     _LOGGER.debug(
-                        "Video timestamp rebased (bootstrap): "
-                        "device_ts=0x%08X out=0x%08X offset=0x%08X",
-                        device_ts, self._video_ts_out + 1,
+                        "Video timestamp rebased (bootstrap): device_ts=0x%08X out=0x%08X offset=0x%08X",
+                        device_ts,
+                        self._video_ts_out + 1,
                         self._video_ts_offset,
                     )
                 else:
                     forward = (device_ts - self._last_device_ts) & 0xFFFFFFFF
                     if forward > 0x80000000:
-                        self._video_ts_offset = (
-                            self._video_ts_out + 1 - device_ts
-                        ) & 0xFFFFFFFF
+                        self._video_ts_offset = (self._video_ts_out + 1 - device_ts) & 0xFFFFFFFF
                         _LOGGER.debug(
-                            "Video timestamp rebased (backward jump): "
-                            "device_ts=0x%08X out=0x%08X offset=0x%08X",
-                            device_ts, self._video_ts_out + 1,
+                            "Video timestamp rebased (backward jump): device_ts=0x%08X out=0x%08X offset=0x%08X",
+                            device_ts,
+                            self._video_ts_out + 1,
                             self._video_ts_offset,
                         )
 
@@ -894,8 +877,12 @@ class LocalRtspServer:
         """Packetize one H.264 NAL unit and broadcast to all clients."""
         if len(nal_data) <= _MAX_RTP_PAYLOAD:
             pkt = _build_rtp(
-                pt=96, seq=self._video_seq, ts=self._video_ts_out,
-                ssrc=self._video_ssrc, payload=nal_data, marker=True,
+                pt=96,
+                seq=self._video_seq,
+                ts=self._video_ts_out,
+                ssrc=self._video_ssrc,
+                payload=nal_data,
+                marker=True,
             )
             self._video_seq = (self._video_seq + 1) & 0xFFFF
             self._broadcast_rtp(pkt, is_video=True)
@@ -913,7 +900,7 @@ class LocalRtspServer:
             offset = 0
             first = True
             while offset < len(payload):
-                chunk = payload[offset: offset + _MAX_RTP_PAYLOAD - 2]
+                chunk = payload[offset : offset + _MAX_RTP_PAYLOAD - 2]
                 offset += len(chunk)
                 last = offset >= len(payload)
 
@@ -921,8 +908,12 @@ class LocalRtspServer:
                 fragment = struct.pack("BB", fu_indicator, fu_header) + chunk
 
                 pkt = _build_rtp(
-                    pt=96, seq=self._video_seq, ts=self._video_ts_out,
-                    ssrc=self._video_ssrc, payload=fragment, marker=last,
+                    pt=96,
+                    seq=self._video_seq,
+                    ts=self._video_ts_out,
+                    ssrc=self._video_ssrc,
+                    payload=fragment,
+                    marker=last,
                 )
                 self._video_seq = (self._video_seq + 1) & 0xFFFF
                 self._broadcast_rtp(pkt, is_video=True)
@@ -940,15 +931,17 @@ class LocalRtspServer:
         try:
             while self._running:
                 try:
-                    payload = await asyncio.wait_for(
-                        self.audio_queue.get(), timeout=1.0
-                    )
+                    payload = await asyncio.wait_for(self.audio_queue.get(), timeout=1.0)
                 except TimeoutError:
                     payload = _PCMA_SILENCE
 
                 pkt = _build_rtp(
-                    pt=8, seq=self._audio_seq, ts=self._audio_ts,
-                    ssrc=self._audio_ssrc, payload=payload, marker=False,
+                    pt=8,
+                    seq=self._audio_seq,
+                    ts=self._audio_ts,
+                    ssrc=self._audio_ssrc,
+                    payload=payload,
+                    marker=False,
                 )
                 self._audio_seq = (self._audio_seq + 1) & 0xFFFF
                 self._audio_ts = (self._audio_ts + len(payload)) & 0xFFFFFFFF
@@ -979,8 +972,7 @@ class LocalRtspServer:
             # the first SR immediately — clients that haven't seen an SR yet
             # stall their decoders for seconds trying to infer a reference
             # clock from RTP alone.  After that, cadence per RFC 3550.
-            while self._running and self._video_pkt_count == 0 and self._audio_pkt_count == 0:
-                await asyncio.sleep(0.05)
+            await self._first_media_event.wait()
 
             while self._running:
                 if self._active_clients or self._udp_host:

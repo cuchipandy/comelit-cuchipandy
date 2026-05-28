@@ -1,4 +1,4 @@
-﻿"""Unit tests for door open sequences — no device needed."""
+"""Unit tests for door open sequences — no device needed."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _make_config() -> DeviceConfig:
 def _make_client(ctpp_channel=None) -> MagicMock:
     client = MagicMock()
     client.send_binary = AsyncMock()
-    client.read_response = AsyncMock(return_value=None)
+    client.read_response = AsyncMock(return_value=b"\x00" * 8)
     client.get_channel = MagicMock(return_value=ctpp_channel)
     client.open_channel = AsyncMock(return_value=MagicMock())
     client.remove_channel = MagicMock()
@@ -90,9 +90,7 @@ class TestOpenDoorFastPath:
         config = _make_config()
         door = _make_door()
 
-        with patch(
-            "custom_components.comelit_man.door.IconaBridgeClient"
-        ) as mock_cls:
+        with patch("custom_components.comelit_man.door.IconaBridgeClient") as mock_cls:
             await open_door(HOST, PORT, TOKEN, client, config, door)
 
         mock_cls.assert_not_called()

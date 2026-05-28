@@ -93,7 +93,5 @@ def _parse_config(data: dict[str, Any]) -> DeviceConfig:
             )
         )
 
-    _LOGGER.info(
-        "Parsed config: %d doors, %d cameras", len(config.doors), len(config.cameras)
-    )
+    _LOGGER.info("Parsed config: %d doors, %d cameras", len(config.doors), len(config.cameras))
     return config

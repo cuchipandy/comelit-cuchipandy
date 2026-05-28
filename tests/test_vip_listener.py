@@ -1,8 +1,9 @@
-﻿"""Unit tests for VipEventListener and parse_ctpp_message."""
+"""Unit tests for VipEventListener and parse_ctpp_message."""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import struct
 import time
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -114,9 +115,7 @@ class TestParseCtppMessage:
         assert msg["flags"] == 0xABCD
 
     def test_extracts_sb_addresses(self):
-        data = _make_ctpp_msg(
-            PREFIX_VIP_EVENT, 0, 0, flags=0, addresses=["SB000001", "SB000006"]
-        )
+        data = _make_ctpp_msg(PREFIX_VIP_EVENT, 0, 0, flags=0, addresses=["SB000001", "SB000006"])
         msg = parse_ctpp_message(data)
         assert "SB000001" in msg["addresses"]
         assert "SB000006" in msg["addresses"]
@@ -355,10 +354,7 @@ class TestProcessMessage:
         cb = MagicMock()
         listener = _make_listener(cb)
 
-        data = _make_ctpp_msg(
-            PREFIX_VIP_EVENT, 0x12345678, ACTION_DOOR_OPENED, flags=0,
-            addresses=["SB000006"]
-        )
+        data = _make_ctpp_msg(PREFIX_VIP_EVENT, 0x12345678, ACTION_DOOR_OPENED, flags=0, addresses=["SB000006"])
         await listener._process_message(data)
 
         # Event fired
@@ -405,9 +401,7 @@ class TestProcessMessage:
 
         # Device renewal timestamp is completely different — listener must ignore it
         device_ts = 0xE869C888
-        data = _make_ctpp_msg(
-            PREFIX_VIP_EVENT, device_ts, ACTION_REGISTRATION_RENEWAL, flags=0
-        )
+        data = _make_ctpp_msg(PREFIX_VIP_EVENT, device_ts, ACTION_REGISTRATION_RENEWAL, flags=0)
 
         sent_payloads: list[bytes] = []
 
@@ -444,9 +438,7 @@ class TestVipListenerStop:
     @pytest.mark.asyncio
     async def test_stop_cancels_task(self):
         listener = _make_listener()
-        listener._running = True
 
-        # Plant a long-running task
         async def _forever():
             await asyncio.sleep(9999)
 
@@ -454,12 +446,10 @@ class TestVipListenerStop:
         await listener.stop()
 
         assert listener._task is None
-        assert listener._running is False
 
     @pytest.mark.asyncio
     async def test_stop_safe_when_no_task(self):
         listener = _make_listener()
-        listener._running = False
         listener._task = None
         await listener.stop()  # must not raise
 
@@ -488,7 +478,7 @@ class TestVipListenerStart:
         await listener.start()
 
         assert listener._task is not None
-        assert listener._running is True
+        assert not listener._task.done()
         # Clean up
         await listener.stop()
 
@@ -496,62 +486,44 @@ class TestVipListenerStart:
 class TestListenLoop:
     @pytest.mark.asyncio
     async def test_listen_loop_dispatches_message(self):
+        """Loop processes a queued message and fires the callback."""
         cb = MagicMock()
         listener = _make_listener(cb)
-        listener._running = True
-
         data = _make_ctpp_msg(PREFIX_VIP_EVENT, 0, ACTION_IN_ALERTING, flags=0)
-
-        async def _stop_after_one():
-            # Let the loop run one iteration, then stop it
-            await asyncio.sleep(0)
-            listener._running = False
-
         await listener._channel.response_queue.put(data)
-        await asyncio.gather(
-            listener._listen_loop(),
-            _stop_after_one(),
-        )
+
+        task = asyncio.create_task(listener._listen_loop())
+        await asyncio.sleep(0.05)  # let the loop process the message
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
         cb.assert_called_once()
         assert cb.call_args[0][0].event_type == "doorbell_ring"
 
     @pytest.mark.asyncio
-    async def test_listen_loop_timeout_continues(self):
-        """TimeoutError on queue.get() causes the loop to continue, not exit."""
+    async def test_listen_loop_blocks_until_cancelled(self):
+        """Loop blocks on empty queue and only exits via task cancellation."""
         listener = _make_listener()
-        listener._running = True
-        iteration_count = 0
 
-        async def mock_get_timeout_then_stop():
-            nonlocal iteration_count
-            iteration_count += 1
-            if iteration_count < 3:
-                raise TimeoutError
-            listener._running = False
-            raise TimeoutError
+        task = asyncio.create_task(listener._listen_loop())
+        await asyncio.sleep(0)
+        assert not task.done()  # still blocked on queue.get()
 
-        listener._channel.response_queue.get = mock_get_timeout_then_stop
-        await listener._listen_loop()
-        assert iteration_count >= 3
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        assert task.done()
 
     @pytest.mark.asyncio
-    async def test_listen_loop_cancelled_error_breaks(self):
-        """CancelledError from wait_for causes the loop to exit cleanly (no re-raise)."""
+    async def test_listen_loop_cancelled_exits_cleanly(self):
+        """CancelledError exits the loop without propagating to the caller."""
         listener = _make_listener()
-        listener._running = True
 
-        async def raise_cancelled(*args, **kwargs):
-            for arg in args:
-                if asyncio.iscoroutine(arg):
-                    arg.close()
-            raise asyncio.CancelledError
-
-        with patch(
-            "custom_components.comelit_man.vip_listener.asyncio.wait_for",
-            side_effect=raise_cancelled,
-        ):
-            await listener._listen_loop()  # exits via break, no exception raised
+        task = asyncio.create_task(listener._listen_loop())
+        await asyncio.sleep(0)
+        task.cancel()
+        await task  # must return normally, not raise
 
 
 # ---------------------------------------------------------------------------

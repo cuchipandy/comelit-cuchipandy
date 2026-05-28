@@ -27,9 +27,7 @@ COMELIT_HOST = os.environ.get("COMELIT_HOST")
 COMELIT_TOKEN = os.environ.get("COMELIT_TOKEN")
 COMELIT_PASSWORD = os.environ.get("COMELIT_PASSWORD", "comelit")
 
-pytestmark = pytest.mark.skipif(
-    not COMELIT_HOST, reason="COMELIT_HOST not set (real device required)"
-)
+pytestmark = pytest.mark.skipif(not COMELIT_HOST, reason="COMELIT_HOST not set (real device required)")
 
 
 @pytest.mark.asyncio
@@ -152,6 +150,7 @@ async def test_push_listener():
 # CTPP setup helper — mirrors coordinator._open_ctpp_channels
 # ---------------------------------------------------------------------------
 
+
 async def _setup_ctpp(client, config) -> int:
     """Open CTPP+CSPB channels and run the init handshake.
 
@@ -171,8 +170,11 @@ async def _setup_ctpp(client, config) -> int:
     await client.open_channel("CSPB", ChannelType.UAUT)
     ts = int(time.time()) & 0xFFFFFFFF
     await ctpp_init_sequence(
-        client, ctpp,
-        config.apt_address, config.apt_subaddress, our_addr,
+        client,
+        ctpp,
+        config.apt_address,
+        config.apt_subaddress,
+        our_addr,
         ts,
     )
     return ts
@@ -181,6 +183,7 @@ async def _setup_ctpp(client, config) -> int:
 # ---------------------------------------------------------------------------
 # RTSP client helpers (used by video integration tests)
 # ---------------------------------------------------------------------------
+
 
 async def _read_rtsp_response(reader: asyncio.StreamReader) -> bytes:
     """Read one complete RTSP response (headers + body) from the stream."""
@@ -234,9 +237,7 @@ async def _rtsp_play(
     PLAY 200 OK response — subsequent reads will be interleaved RTP frames.
     Caller is responsible for closing the writer.
     """
-    reader, writer = await asyncio.wait_for(
-        asyncio.open_connection("127.0.0.1", port), timeout=5.0
-    )
+    reader, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=5.0)
     base_url = f"rtsp://127.0.0.1:{port}/intercom"
 
     # OPTIONS
@@ -246,9 +247,7 @@ async def _rtsp_play(
     assert b"200 OK" in resp, f"OPTIONS failed: {resp[:200]}"
 
     # DESCRIBE
-    writer.write(
-        f"DESCRIBE {base_url} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode()
-    )
+    writer.write(f"DESCRIBE {base_url} RTSP/1.0\r\nCSeq: 2\r\nAccept: application/sdp\r\n\r\n".encode())
     await writer.drain()
     resp = await _read_rtsp_response(reader)
     assert b"200 OK" in resp, f"DESCRIBE failed: {resp[:200]}"
@@ -270,9 +269,7 @@ async def _rtsp_play(
             break
 
     # PLAY
-    writer.write(
-        f"PLAY {base_url} RTSP/1.0\r\nCSeq: 4\r\nSession: {session_id}\r\n\r\n".encode()
-    )
+    writer.write(f"PLAY {base_url} RTSP/1.0\r\nCSeq: 4\r\nSession: {session_id}\r\n\r\n".encode())
     await writer.drain()
     resp = await _read_rtsp_response(reader)
     assert b"200 OK" in resp, f"PLAY failed: {resp[:200]}"
@@ -283,6 +280,7 @@ async def _rtsp_play(
 # ---------------------------------------------------------------------------
 # Video integration tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_start_video_call():
@@ -317,10 +315,7 @@ async def test_start_video_call():
         assert session.active, "Session not active after start()"
         total_pkts = receiver.udp_media_packet_count + receiver.tcp_media_packet_count
         assert total_pkts > 0, "No RTP packets received"
-        print(
-            f"\nVideo flowing — UDP={receiver.udp_media_packet_count} "
-            f"TCP={receiver.tcp_media_packet_count} pkts"
-        )
+        print(f"\nVideo flowing — UDP={receiver.udp_media_packet_count} TCP={receiver.tcp_media_packet_count} pkts")
     finally:
         if session:
             await session.stop()
@@ -390,9 +385,7 @@ async def test_rtsp_server_streams_video():
 
         # Send TEARDOWN
         base_url = f"rtsp://127.0.0.1:{port}/intercom"
-        rtsp_writer.write(
-            f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
-        )
+        rtsp_writer.write(f"TEARDOWN {base_url} RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode())
         await rtsp_writer.drain()
 
     finally:
@@ -474,8 +467,7 @@ async def test_video_then_door_open():
         assert len(post_frames) == 5, "Video stopped after door open"
 
         rtsp_writer.write(
-            f"TEARDOWN rtsp://127.0.0.1:{port}/intercom RTSP/1.0\r\n"
-            f"CSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
+            f"TEARDOWN rtsp://127.0.0.1:{port}/intercom RTSP/1.0\r\nCSeq: 5\r\nSession: 87654321\r\n\r\n".encode()
         )
         await rtsp_writer.drain()
 

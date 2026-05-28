@@ -1,4 +1,4 @@
-﻿"""Unit tests for VideoCallSession — no device needed."""
+"""Unit tests for VideoCallSession — no device needed."""
 
 from __future__ import annotations
 
@@ -189,13 +189,13 @@ class TestCtppMonitorLoop:
 
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return keepalive_body
             session._active = False  # stop after first message
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent_data.append(data))
@@ -203,8 +203,13 @@ class TestCtppMonitorLoop:
         mock_ctpp = MagicMock()
 
         await session._ctpp_monitor_loop(
-            mock_client, mock_ctpp, "SB0000061", "SB100001", 0x10000000,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            mock_ctpp,
+            "SB0000061",
+            "SB100001",
+            0x10000000,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         # An ACK (0x1800 prefix) should have been sent
@@ -220,20 +225,16 @@ class TestCtppMonitorLoop:
         session = self._make_session()
 
         mock_client = MagicMock()
-        call_end_body = (
-            struct.pack("<H", 0x1840)
-            + struct.pack("<I", 0x12345678)
-            + struct.pack(">H", 0x0003)
-        )
+        call_end_body = struct.pack("<H", 0x1840) + struct.pack("<I", 0x12345678) + struct.pack(">H", 0x0003)
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return call_end_body
             session._active = False
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock()
@@ -248,8 +249,13 @@ class TestCtppMonitorLoop:
         session._inline_reestablish = mock_reestablish
 
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0x10000000,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         assert reestablish_called
@@ -264,20 +270,16 @@ class TestCtppMonitorLoop:
         session = self._make_session()
 
         mock_client = MagicMock()
-        call_end_body = (
-            struct.pack("<H", 0x1840)
-            + struct.pack("<I", 0x12345678)
-            + struct.pack(">H", 0x0003)
-        )
+        call_end_body = struct.pack("<H", 0x1840) + struct.pack("<I", 0x12345678) + struct.pack(">H", 0x0003)
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return call_end_body
             session._active = False
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock()
@@ -289,8 +291,13 @@ class TestCtppMonitorLoop:
 
         # Must not raise; loop exits on next read returning None
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0x10000000,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
     @pytest.mark.asyncio
@@ -303,6 +310,7 @@ class TestCtppMonitorLoop:
         alive, just like a timer-triggered CALL_END (sub=0x0000).
         """
         import struct
+
         session = self._make_session()
 
         mock_client = MagicMock()
@@ -315,13 +323,13 @@ class TestCtppMonitorLoop:
         )
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return call_end_body
             session._active = False
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock()
@@ -336,8 +344,13 @@ class TestCtppMonitorLoop:
         session._inline_reestablish = mock_reestablish
 
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0x10000000,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         assert reestablish_called
@@ -354,20 +367,25 @@ class TestCtppMonitorLoop:
         mock_client = MagicMock()
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return struct.pack("<H", 0x1800) + struct.pack("<I", 0x12345678) + struct.pack(">H", 0x0000)
             session._active = False
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent_data.append(data))
 
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0x10000000,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         assert len(sent_data) == 0  # no response to device ACKs
@@ -388,24 +406,25 @@ class TestCtppMonitorLoop:
         mock_client = MagicMock()
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return (
-                    struct.pack("<H", 0x1860)
-                    + struct.pack("<I", 0xCAFEBABE)
-                    + struct.pack(">H", 0x000A)
-                )
+                return struct.pack("<H", 0x1860) + struct.pack("<I", 0xCAFEBABE) + struct.pack(">H", 0x000A)
             session._active = False
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent_data.append(data))
 
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0x10000000,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         assert len(sent_data) == 1
@@ -441,23 +460,17 @@ class TestAckDeviceRtpcLink:
         mock_client = MagicMock()
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return (
-                    struct.pack("<H", 0x1840)
-                    + struct.pack("<I", 0x11223344)
-                    + struct.pack(">H", 0x000A)
-                )
-            return None
+                return struct.pack("<H", 0x1840) + struct.pack("<I", 0x11223344) + struct.pack(">H", 0x000A)
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent_data.append(data))
 
-        result = await session._ack_device_rtpc_link(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000
-        )
+        result = await session._ack_device_rtpc_link(mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000)
 
         assert len(sent_data) == 1
         prefix = struct.unpack_from("<H", sent_data[0], 0)[0]
@@ -479,23 +492,17 @@ class TestAckDeviceRtpcLink:
         mock_client = MagicMock()
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return (
-                    struct.pack("<H", 0x1860)
-                    + struct.pack("<I", 0x11223344)
-                    + struct.pack(">H", 0x000A)
-                )
-            return None
+                return struct.pack("<H", 0x1860) + struct.pack("<I", 0x11223344) + struct.pack(">H", 0x000A)
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent_data.append(data))
 
-        result = await session._ack_device_rtpc_link(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000
-        )
+        result = await session._ack_device_rtpc_link(mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000)
 
         assert len(sent_data) == 1, "Device 0x1860/0x000A RTPC link was not ACKed"
         prefix = struct.unpack_from("<H", sent_data[0], 0)[0]
@@ -512,25 +519,19 @@ class TestAckDeviceRtpcLink:
         mock_client = MagicMock()
         call_count = 0
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return struct.pack("<H", 0x1800) + struct.pack("<I", 0) + struct.pack(">H", 0)
             if call_count == 2:
-                return (
-                    struct.pack("<H", 0x1860)
-                    + struct.pack("<I", 0x99887766)
-                    + struct.pack(">H", 0x000A)
-                )
-            return None
+                return struct.pack("<H", 0x1860) + struct.pack("<I", 0x99887766) + struct.pack(">H", 0x000A)
+            raise TimeoutError()
 
         mock_client.read_response = mock_read_response
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent_data.append(data))
 
-        await session._ack_device_rtpc_link(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000
-        )
+        await session._ack_device_rtpc_link(mock_client, MagicMock(), "SB0000061", "SB100001", 0x10000000)
 
         assert len(sent_data) == 1
         prefix = struct.unpack_from("<H", sent_data[0], 0)[0]
@@ -574,11 +575,7 @@ class TestInlineReestablish:
         # ctpp_init_sequence reads up to 2 responses; call_init reads 1;
         # _run_codec_exchange reads until 0x0002 (call accepted).
         def make_0x1840(action: int) -> bytes:
-            return (
-                struct.pack("<H", 0x1840)
-                + struct.pack("<I", 0xDEADBEEF)
-                + struct.pack(">H", action)
-            )
+            return struct.pack("<H", 0x1840) + struct.pack("<I", 0xDEADBEEF) + struct.pack(">H", action)
 
         def make_0x1800() -> bytes:
             return struct.pack("<H", 0x1800) + struct.pack("<I", 0) + struct.pack(">H", 0)
@@ -589,20 +586,22 @@ class TestInlineReestablish:
         # [3]   codec exchange: 0x0002 = call accepted
         # [4+]  _ack_device_rtpc_link: returns None (timeout suppressed)
         responses = [
-            make_0x1800(),        # ctpp_init drain 1
-            make_0x1800(),        # ctpp_init drain 2
+            make_0x1800(),  # ctpp_init drain 1
+            make_0x1800(),  # ctpp_init drain 2
             make_0x1840(0x0001),  # call_init ACK (any action)
             make_0x1840(0x0002),  # codec exchange: call accepted
-            None,                 # _ack_device_rtpc_link timeout
+            None,  # _ack_device_rtpc_link timeout
         ]
 
-        async def mock_read_response(channel, timeout=2.0):
+        async def mock_read_response(channel):
             nonlocal read_count
             if read_count < len(responses):
                 resp = responses[read_count]
                 read_count += 1
+                if resp is None:
+                    raise TimeoutError()
                 return resp
-            return None
+            raise TimeoutError()
 
         mock_client = MagicMock()
         mock_client.read_response = mock_read_response
@@ -622,22 +621,23 @@ class TestInlineReestablish:
         session._ts = lambda: fixed_ts
 
         await session._inline_reestablish(
-            mock_client, mock_ctpp,
-            our_addr, entrance_addr,
-            rtpc1_server_id, media_req_id,
+            mock_client,
+            mock_ctpp,
+            our_addr,
+            entrance_addr,
+            rtpc1_server_id,
+            media_req_id,
             call_counter=0x00010000,
         )
 
         sent_prefixes = [struct.unpack_from("<H", d, 0)[0] for d in sent_data]
-        sent_actions = [
-            struct.unpack_from(">H", d, 6)[0] if len(d) >= 8 else 0
-            for d in sent_data
-        ]
+        sent_actions = [struct.unpack_from(">H", d, 6)[0] if len(d) >= 8 else 0 for d in sent_data]
 
         # RTPC_LINK: prefix 0x1840, action 0x000A
         ACTION_RTPC_LINK = 0x000A
         rtpc_link_messages = [
-            d for d in sent_data
+            d
+            for d in sent_data
             if len(d) >= 8
             and struct.unpack_from("<H", d, 0)[0] == 0x1840
             and struct.unpack_from(">H", d, 6)[0] == ACTION_RTPC_LINK
@@ -648,7 +648,8 @@ class TestInlineReestablish:
         # Verify it matches what encode_video_config would produce (not _resp).
         # encode_video_config uses prefix 0x1840; encode_video_config_resp uses 0x1860.
         video_config_messages = [
-            d for d in sent_data
+            d
+            for d in sent_data
             if len(d) >= 8
             and struct.unpack_from("<H", d, 0)[0] == 0x1840
             and struct.unpack_from(">H", d, 6)[0] not in (ACTION_RTPC_LINK, 0x0000, 0x0070)
@@ -659,6 +660,7 @@ class TestInlineReestablish:
 # ---------------------------------------------------------------------------
 # Group A — async_open_door_on_ctpp
 # ---------------------------------------------------------------------------
+
 
 class TestAsyncOpenDoorOnCtpp:
     """Tests for async_open_door_on_ctpp — door open on the active video CTPP."""
@@ -708,6 +710,7 @@ class TestAsyncOpenDoorOnCtpp:
 # Group B — _auto_timeout_loop
 # ---------------------------------------------------------------------------
 
+
 class TestAutoTimeoutLoop:
     """Tests for _auto_timeout_loop — session auto-stop after VIDEO_SESSION_TIMEOUT."""
 
@@ -751,6 +754,7 @@ class TestAutoTimeoutLoop:
 # Group C — _run_codec_exchange branches
 # ---------------------------------------------------------------------------
 
+
 class TestRunCodecExchange:
     """Tests for _run_codec_exchange branches not hit by inline_reestablish tests."""
 
@@ -759,22 +763,23 @@ class TestRunCodecExchange:
         mock_client = MagicMock()
         it = iter(responses)
 
-        async def mock_read(channel, timeout=2.0):
-            return next(it, None)
+        async def mock_read(channel):
+            val = next(it, None)
+            if val is None:
+                raise TimeoutError()
+            return val
 
         mock_client.read_response = mock_read
         mock_client.send_binary = AsyncMock()
         return mock_client
 
     @pytest.mark.asyncio
-    async def test_breaks_on_empty_response(self):
-        """None response breaks the loop and returns the counter unchanged."""
+    async def test_breaks_on_timeout(self):
+        """Timeout (no response) breaks the loop and returns the counter unchanged."""
         session = VideoCallSession.__new__(VideoCallSession)
         mock_client = self._make_client([None])
 
-        result = await session._run_codec_exchange(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0x1234
-        )
+        result = await session._run_codec_exchange(mock_client, MagicMock(), "SB0000061", "SB100001", 0x1234)
 
         assert result == 0x1234
         mock_client.send_binary.assert_not_called()
@@ -788,9 +793,7 @@ class TestRunCodecExchange:
         skip_msg = struct.pack("<H", 0x1800) + struct.pack("<I", 0) + struct.pack(">H", 0)
         mock_client = self._make_client([skip_msg, None])
 
-        await session._run_codec_exchange(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0
-        )
+        await session._run_codec_exchange(mock_client, MagicMock(), "SB0000061", "SB100001", 0)
 
         mock_client.send_binary.assert_not_called()
 
@@ -804,9 +807,7 @@ class TestRunCodecExchange:
         msg_accept = struct.pack("<H", 0x1840) + struct.pack("<I", 0) + struct.pack(">H", 0x0002)
         mock_client = self._make_client([msg_0008, msg_accept])
 
-        await session._run_codec_exchange(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0
-        )
+        await session._run_codec_exchange(mock_client, MagicMock(), "SB0000061", "SB100001", 0)
 
         # ACK for 0x0008 + ACK for 0x0002 (call accepted)
         assert mock_client.send_binary.call_count == 2
@@ -817,16 +818,10 @@ class TestRunCodecExchange:
         import struct
 
         session = VideoCallSession.__new__(VideoCallSession)
-        unknown_msg = (
-            struct.pack("<H", 0x1840)
-            + struct.pack("<I", 0)
-            + struct.pack(">H", 0x0099)
-        )
+        unknown_msg = struct.pack("<H", 0x1840) + struct.pack("<I", 0) + struct.pack(">H", 0x0099)
         mock_client = self._make_client([unknown_msg, None])
 
-        await session._run_codec_exchange(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0
-        )
+        await session._run_codec_exchange(mock_client, MagicMock(), "SB0000061", "SB100001", 0)
 
         assert mock_client.send_binary.call_count == 1
 
@@ -834,6 +829,7 @@ class TestRunCodecExchange:
 # ---------------------------------------------------------------------------
 # Group D — _tcp_video_loop exception paths
 # ---------------------------------------------------------------------------
+
 
 class TestTcpVideoLoop:
     """Tests for _tcp_video_loop CancelledError and generic exception paths."""
@@ -893,6 +889,7 @@ class TestTcpVideoLoop:
 # Group E — _ctpp_monitor_loop rare paths
 # ---------------------------------------------------------------------------
 
+
 class TestCtppMonitorLoopRarePaths:
     """Tests for _ctpp_monitor_loop paths not covered in TestCtppMonitorLoop."""
 
@@ -920,24 +917,25 @@ class TestCtppMonitorLoopRarePaths:
         mock_client = MagicMock()
         call_count = 0
 
-        async def mock_read(channel, timeout=2.0):
+        async def mock_read(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                return (
-                    struct.pack("<H", 0x9999)
-                    + struct.pack("<I", 0)
-                    + struct.pack(">H", 0)
-                )
+                return struct.pack("<H", 0x9999) + struct.pack("<I", 0) + struct.pack(">H", 0)
             session._active = False
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read
         mock_client.send_binary = AsyncMock()
 
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         mock_client.send_binary.assert_not_called()
@@ -952,18 +950,14 @@ class TestCtppMonitorLoopRarePaths:
         mock_client = MagicMock()
         call_count = 0
 
-        call_end_body = (
-            struct.pack("<H", 0x1840)
-            + struct.pack("<I", 0)
-            + struct.pack(">H", 0x0003)
-        )
+        call_end_body = struct.pack("<H", 0x1840) + struct.pack("<I", 0) + struct.pack(">H", 0x0003)
 
-        async def mock_read(channel, timeout=2.0):
+        async def mock_read(channel):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return call_end_body
-            return None
+            raise TimeoutError()
 
         mock_client.read_response = mock_read
         mock_client.send_binary = AsyncMock()
@@ -974,8 +968,13 @@ class TestCtppMonitorLoopRarePaths:
         session._inline_reestablish = failing_reestablish
 
         await session._ctpp_monitor_loop(
-            mock_client, MagicMock(), "SB0000061", "SB100001", 0,
-            rtpc1_server_id=0xABCD, media_req_id=0x1234,
+            mock_client,
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            0,
+            rtpc1_server_id=0xABCD,
+            media_req_id=0x1234,
         )
 
         assert fired == [True]
@@ -985,6 +984,7 @@ class TestCtppMonitorLoopRarePaths:
 # ---------------------------------------------------------------------------
 # Group F — _run_answer_sequence wrapper exception
 # ---------------------------------------------------------------------------
+
 
 class TestRunAnswerSequenceWrapper:
     """Tests for _run_answer_sequence — fire-and-forget wrapper that swallows exceptions."""
@@ -1003,14 +1003,20 @@ class TestRunAnswerSequenceWrapper:
 
         # Must not raise
         await session._run_answer_sequence(
-            MagicMock(), MagicMock(), "SB0000061", "SB100001", "SB000006",
-            0x10000000, 0x1234,
+            MagicMock(),
+            MagicMock(),
+            "SB0000061",
+            "SB100001",
+            "SB000006",
+            0x10000000,
+            0x1234,
         )
 
 
 # ---------------------------------------------------------------------------
 # Group G — _cleanup with _owns_ctpp=False
 # ---------------------------------------------------------------------------
+
 
 class TestCleanupCtppSkip:
     """Tests for _cleanup when _owns_ctpp=False — coordinator CTPP must be preserved."""
@@ -1043,6 +1049,7 @@ class TestCleanupCtppSkip:
 # ---------------------------------------------------------------------------
 # Group H — start() branches
 # ---------------------------------------------------------------------------
+
 
 class TestStart:
     """Tests for VideoCallSession.start() — remaining uncovered branches.
@@ -1088,9 +1095,7 @@ class TestStart:
 
         channel_id_counter = [0x0011]
 
-        async def mock_open_channel(
-            name, channel_type, extra_data=None, trailing_byte=0, wire_name=None
-        ):
+        async def mock_open_channel(name, channel_type, extra_data=None, trailing_byte=0, wire_name=None):
             ch = MagicMock()
             ch.server_channel_id = channel_id_counter[0]
             channel_id_counter[0] += 1
@@ -1115,8 +1120,11 @@ class TestStart:
         ]
         resp_iter = iter(responses)
 
-        async def mock_read(channel, timeout=2.0):
-            return next(resp_iter, None)
+        async def mock_read(channel):
+            val = next(resp_iter, None)
+            if val is None:
+                raise TimeoutError()
+            return val
 
         mock_client = MagicMock()
         mock_client.host = "192.168.1.1"
@@ -1132,7 +1140,10 @@ class TestStart:
         mock_receiver.start_control = AsyncMock()
         mock_receiver.start_media = AsyncMock()
         mock_receiver.stop = AsyncMock()
-        mock_receiver.wait_for_first_video = AsyncMock(return_value=not no_media)
+        if no_media:
+            mock_receiver.wait_for_first_video = AsyncMock(side_effect=TimeoutError())
+        else:
+            mock_receiver.wait_for_first_video = AsyncMock()
         mock_receiver.udp_media_packet_count = 0
         mock_receiver.tcp_media_packet_count = 0
 
@@ -1145,9 +1156,7 @@ class TestStart:
 
         return config, mock_client, mock_receiver, mock_rtsp
 
-    def _make_session(
-        self, config, mock_client, *, auto_timeout: bool = False, rtsp_server=None
-    ) -> "VideoCallSession":
+    def _make_session(self, config, mock_client, *, auto_timeout: bool = False, rtsp_server=None) -> "VideoCallSession":
         """Build a VideoCallSession from mocks, bypassing __init__."""
         session = VideoCallSession.__new__(VideoCallSession)
         session._client = mock_client
@@ -1216,21 +1225,20 @@ class TestStart:
 
         Coverage: lines 247-248 (open CSPB sub-branch inside reuse path).
         """
-        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(
-            ctpp_exists=True, cspb_exists=False
-        )
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(ctpp_exists=True, cspb_exists=False)
         session = self._make_session(config, mock_client)
 
         opened: list[str] = []
         original_open = mock_client.open_channel
 
-        async def tracking_open(
-            name, channel_type, extra_data=None, trailing_byte=0, wire_name=None
-        ):
+        async def tracking_open(name, channel_type, extra_data=None, trailing_byte=0, wire_name=None):
             opened.append(name)
             return await original_open(
-                name, channel_type,
-                extra_data=extra_data, trailing_byte=trailing_byte, wire_name=wire_name,
+                name,
+                channel_type,
+                extra_data=extra_data,
+                trailing_byte=trailing_byte,
+                wire_name=wire_name,
             )
 
         mock_client.open_channel = tracking_open
@@ -1271,9 +1279,7 @@ class TestStart:
 
         Coverage: lines 415-417, 510-512.
         """
-        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(
-            device_rtpc_timeout=True
-        )
+        config, mock_client, mock_receiver, mock_rtsp = self._make_mocks(device_rtpc_timeout=True)
         session = self._make_session(config, mock_client)
         mock_ctpp_init = AsyncMock()
 

@@ -19,6 +19,7 @@ def _mock_client(*, auth_error: bool = False, connect_error: Exception | None = 
     client.disconnect = AsyncMock()
     if auth_error:
         from custom_components.comelit_man.exceptions import AuthenticationError
+
         client.connect = AsyncMock()
     return client
 
@@ -92,9 +93,7 @@ class TestReauthFlow:
             patch("custom_components.comelit_man.config_flow.IconaBridgeClient", return_value=client),
             patch("custom_components.comelit_man.config_flow.authenticate", new_callable=AsyncMock),
         ):
-            result = await flow.async_step_reauth_confirm(
-                user_input={"token": TOKEN, "password": "comelit"}
-            )
+            result = await flow.async_step_reauth_confirm(user_input={"token": TOKEN, "password": "comelit"})
 
         client.disconnect.assert_awaited_once()
         # Result should be an abort (reauth_successful) or create_entry
@@ -113,9 +112,7 @@ class TestReauthFlow:
                 side_effect=AuthenticationError("bad token"),
             ),
         ):
-            result = await flow.async_step_reauth_confirm(
-                user_input={"token": TOKEN, "password": "comelit"}
-            )
+            result = await flow.async_step_reauth_confirm(user_input={"token": TOKEN, "password": "comelit"})
 
         assert result["type"] == "form"
         assert result["errors"]["base"] == "invalid_auth"
@@ -189,6 +186,7 @@ class TestGetOptionsFlow:
             ComelitLocalConfigFlow,
             ComelitLocalOptionsFlow,
         )
+
         entry = MagicMock()
         entry.options = {}
         result = ComelitLocalConfigFlow.async_get_options_flow(entry)
@@ -227,9 +225,7 @@ class TestReauthStep:
             new_callable=AsyncMock,
             side_effect=RuntimeError("no backup"),
         ):
-            result = await flow.async_step_reauth_confirm(
-                user_input={"token": "", "password": "comelit"}
-            )
+            result = await flow.async_step_reauth_confirm(user_input={"token": "", "password": "comelit"})
 
         assert result["type"] == "form"
         assert result["errors"]["base"] == "token_extraction_failed"
@@ -245,9 +241,7 @@ class TestReauthStep:
 
         client = _mock_client(connect_error=OSError("refused"))
         with patch("custom_components.comelit_man.config_flow.IconaBridgeClient", return_value=client):
-            result = await flow.async_step_reauth_confirm(
-                user_input={"token": TOKEN, "password": "comelit"}
-            )
+            result = await flow.async_step_reauth_confirm(user_input={"token": TOKEN, "password": "comelit"})
 
         assert result["type"] == "form"
         assert result["errors"]["base"] == "cannot_connect"
@@ -300,6 +294,7 @@ class TestReconfigureExtended:
     @pytest.mark.asyncio
     async def test_reconfigure_invalid_auth(self):
         from custom_components.comelit_man.exceptions import AuthenticationError
+
         flow = self._make_flow()
         client = _mock_client()
 
@@ -366,15 +361,14 @@ class TestDhcpFlow:
             patch("custom_components.comelit_man.config_flow.IconaBridgeClient", return_value=client),
             patch("custom_components.comelit_man.config_flow.authenticate", new_callable=AsyncMock),
         ):
-            result = await flow.async_step_dhcp_confirm(
-                user_input={"token": TOKEN, "password": "comelit"}
-            )
+            result = await flow.async_step_dhcp_confirm(user_input={"token": TOKEN, "password": "comelit"})
 
         assert result["type"] in ("create_entry", "abort")
 
     @pytest.mark.asyncio
     async def test_dhcp_confirm_auth_error(self):
         from custom_components.comelit_man.exceptions import AuthenticationError
+
         flow = self._make_flow()
         flow._discovered_host = HOST
         client = _mock_client()
@@ -387,9 +381,7 @@ class TestDhcpFlow:
                 side_effect=AuthenticationError("bad"),
             ),
         ):
-            result = await flow.async_step_dhcp_confirm(
-                user_input={"token": TOKEN, "password": "comelit"}
-            )
+            result = await flow.async_step_dhcp_confirm(user_input={"token": TOKEN, "password": "comelit"})
 
         assert result["type"] == "form"
         assert result["errors"]["base"] == "invalid_auth"
@@ -401,9 +393,7 @@ class TestDhcpFlow:
         client = _mock_client(connect_error=OSError("refused"))
 
         with patch("custom_components.comelit_man.config_flow.IconaBridgeClient", return_value=client):
-            result = await flow.async_step_dhcp_confirm(
-                user_input={"token": TOKEN, "password": "comelit"}
-            )
+            result = await flow.async_step_dhcp_confirm(user_input={"token": TOKEN, "password": "comelit"})
 
         assert result["type"] == "form"
         assert result["errors"]["base"] == "cannot_connect"
@@ -418,9 +408,7 @@ class TestDhcpFlow:
             new_callable=AsyncMock,
             side_effect=RuntimeError("no backup"),
         ):
-            result = await flow.async_step_dhcp_confirm(
-                user_input={"token": "", "password": "comelit"}
-            )
+            result = await flow.async_step_dhcp_confirm(user_input={"token": "", "password": "comelit"})
 
         assert result["type"] == "form"
         assert result["errors"]["base"] == "token_extraction_failed"

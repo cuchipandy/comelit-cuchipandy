@@ -1,4 +1,4 @@
-﻿"""Tests for the HA custom component: coordinator, config flow, and setup/unload."""
+"""Tests for the HA custom component: coordinator, config flow, and setup/unload."""
 
 from __future__ import annotations
 
@@ -223,9 +223,7 @@ class TestCoordinatorUpdate:
 
         new_config = _make_config()
 
-        with patch.object(
-            coord, "_reconnect", new_callable=AsyncMock
-        ) as mock_reconnect:
+        with patch.object(coord, "_reconnect", new_callable=AsyncMock) as mock_reconnect:
             # Simulate _reconnect setting new config
             async def do_reconnect():
                 coord._config = new_config
@@ -261,9 +259,7 @@ class TestCoordinatorUpdate:
         coord._client = None
         new_config = _make_config()
 
-        with patch.object(
-            coord, "_reconnect", new_callable=AsyncMock
-        ) as mock_reconnect:
+        with patch.object(coord, "_reconnect", new_callable=AsyncMock) as mock_reconnect:
 
             async def do_reconnect():
                 coord._config = new_config
@@ -560,11 +556,22 @@ class TestConfigFlow:
     async def test_no_token_extract_fails(self):
         """No token, extract_token fails → errors['base'] = 'token_extraction_failed'."""
         flow = self._make_flow()
+        client = _mock_client()
 
-        with patch(
-            "custom_components.comelit_man.token.extract_token",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("no backup"),
+        with (
+            patch(
+                "custom_components.comelit_man.config_flow.IconaBridgeClient",
+                return_value=client,
+            ),
+            patch(
+                "custom_components.comelit_man.config_flow.authenticate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "custom_components.comelit_man.config_flow.extract_token",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("no backup"),
+            ),
         ):
             result = await flow.async_step_user(self._base_input(token=""))
 
@@ -618,9 +625,7 @@ class TestSetupUnload:
                 "custom_components.comelit_man.coordinator.LocalRtspServer",
                 return_value=mock_rtsp,
             ),
-            patch(
-                "custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"
-            ),
+            patch("custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"),
         ):
             result = await async_setup_entry(hass, entry)
 
@@ -692,9 +697,7 @@ class TestSetupUnload:
                 "custom_components.comelit_man.coordinator.LocalRtspServer",
                 return_value=mock_rtsp,
             ),
-            patch(
-                "custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"
-            ),
+            patch("custom_components.comelit_man.coordinator.ComelitLocalCoordinator._start_keepalive"),
         ):
             await async_setup_entry(hass, entry)
 
