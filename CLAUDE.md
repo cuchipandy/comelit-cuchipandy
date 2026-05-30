@@ -292,8 +292,8 @@ logger:
 
 ## Future Opportunities
 
-### Inbound call answer (in progress)
-Answer a doorbell ring from HA — two-way audio with the visitor. PCAP-verified sequence implemented in `test_inbound_skip_callinit`; needs live test then wiring into coordinator. See active plan.
+### Inbound call answer (complete)
+When a visitor presses the doorbell, the integration auto-answers via `_on_inbound_ring` → `async_start_inbound_video` (coordinator) → `VideoCallSession.start_inbound()` (video_call.py). An "Answer Doorbell" button entity triggers `answer_inbound()` for two-way audio. Live-tested on device 2026-05-30: 547 video frames + 676 audio frames received, 551 audio frames sent.
 
 ### Face recognition via FRCG channel
 The device has a built-in face recognition pipeline. When a ring occurs, the device:

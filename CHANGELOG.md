@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+### New features
+
+- **Inbound call answer** — when a visitor presses the doorbell, the integration automatically answers the call and starts the video feed. An "Answer Doorbell" button entity starts two-way audio. A `missed_call` event fires if the ring times out unanswered.
+- **go2rtc two-way audio** — when go2rtc is present, the RTSP stream is registered with `#backchannel=1` so microphone audio from the HA companion app or a WebRTC-capable browser flows back to the intercom speaker (ONVIF Profile T backchannel via ANNOUNCE/RECORD).
+
+### Bug fixes
+
+- Fixed ACK handling for registration renewals arriving during the inbound answer sequence.
+
 ## 1.0.2
 
 ### Bug fixes
