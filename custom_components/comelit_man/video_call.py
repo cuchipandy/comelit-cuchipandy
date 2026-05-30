@@ -858,7 +858,7 @@ class VideoCallSession:
             )
         _LOGGER.info("Answer peer/accept (0x70) sent")
 
-    async def start_inbound(self, entrance_addr: str, ring_ts: int) -> RtpReceiver:  # noqa: C901
+    async def start_inbound(self, entrance_addr: str, ring_ts: int, renewal_ack_ts: int = 0) -> RtpReceiver:  # noqa: C901
         """Execute the inbound call answer sequence (PCAP2-verified, steps 1-20).
 
         Called when the device initiates a ring (PREFIX_CALL_INIT). Reuses the
@@ -945,6 +945,10 @@ class VideoCallSession:
                         if msg_type == 0x18C0 and action == 0x0029:
                             await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, fresh_ts))
                             continue
+                        if msg_type == 0x1860 and action == 0x0010 and renewal_ack_ts:
+                            await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, renewal_ack_ts))
+                            await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, renewal_ack_ts, prefix=0x1820))
+                            continue
                         if msg_type != 0x18C0:
                             break
             except TimeoutError:
@@ -953,8 +957,16 @@ class VideoCallSession:
             # Drain any remaining bundle messages before sending ACK2
             await asyncio.sleep(0.05)
             while not ctpp.response_queue.empty():
-                with contextlib.suppress(asyncio.QueueEmpty):
-                    ctpp.response_queue.get_nowait()
+                try:
+                    _fd = ctpp.response_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if renewal_ack_ts and len(_fd) >= 8:
+                    _ft = struct.unpack_from("<H", _fd, 0)[0]
+                    _fa = struct.unpack_from(">H", _fd, 6)[0]
+                    if _ft == 0x1860 and _fa == 0x0010:
+                        await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, renewal_ack_ts))
+                        await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, renewal_ack_ts, prefix=0x1820))
 
             # Step 7: ACK2 (fresh_ts + B5) + RTPC2 open simultaneously (PCAP2-verified)
             call_counter = (fresh_ts + _CTR_INCR_BYTE5) & 0xFFFFFFFF
@@ -1030,6 +1042,9 @@ class VideoCallSession:
                         acked_rtpc_link = True
                     elif action == 0x000E:
                         acked_peer = True
+                elif msg_type == 0x1860 and action == 0x0010 and renewal_ack_ts:
+                    await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, renewal_ack_ts))
+                    await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, renewal_ack_ts, prefix=0x1820))
 
             # Step 16: Wait for device to open its RTPC channel
             try:

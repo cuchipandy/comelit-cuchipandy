@@ -23,7 +23,7 @@ from .channels import ChannelType
 from .client import IconaBridgeClient
 from .config_reader import get_device_config
 from .const import CONF_ENABLE_NOTIFICATIONS, DOMAIN
-from .ctpp import ctpp_init_sequence
+from .ctpp import _CTR_INCR_BOTH, ctpp_init_sequence
 from .door import open_door
 from .exceptions import AuthenticationError, DoorOpenError
 from .models import DeviceConfig, Door, PushEvent
@@ -510,7 +510,8 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 on_timeout=self._on_video_call_end,
             )
             try:
-                await session.start_inbound(entrance_addr, ring_ts)
+                renewal_ack_ts = (self._ctpp_init_ts + _CTR_INCR_BOTH) & 0xFFFFFFFF
+                await session.start_inbound(entrance_addr, ring_ts, renewal_ack_ts=renewal_ack_ts)
             except Exception:
                 _LOGGER.warning("Inbound call answer failed", exc_info=True)
                 self._on_push_event(

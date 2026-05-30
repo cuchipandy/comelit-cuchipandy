@@ -1577,6 +1577,56 @@ class TestStartInbound:
         with pytest.raises(VideoCallError):
             await session.start_inbound("SB100001", 0x12345678)
 
+    @pytest.mark.asyncio
+    async def test_renewal_in_bundle_wait_is_acked_and_does_not_break_loop(self):
+        """0x1860/0x0010 arriving before the device bundle is ACKed with the
+        init-based timestamp pair and the loop continues; the actual bundle
+        response still breaks it normally (not the renewal).
+
+        Without the fix, the renewal would hit `if msg_type != 0x18C0: break`
+        and abort the signaling sequence prematurely.
+        """
+        import struct
+        from unittest.mock import call as mcall
+
+        from custom_components.comelit_man.protocol import encode_call_response_ack
+
+        config, mock_client, mock_receiver, mock_rtsp, ctpp_ch = self._make_mocks()
+        session = self._make_session(config, mock_client)
+
+        RENEWAL_ACK_TS = 0xDEADBEEF
+        our_addr = f"{config.apt_address}{config.apt_subaddress}"
+        our_base = config.apt_address
+
+        renewal = struct.pack("<HI", 0x1860, 0xAAAAAAAA) + struct.pack(">HH", 0x0010, 0x0000)
+        bundle = struct.pack("<HI", 0x1840, 0x11111111) + struct.pack(">HH", 0x0008, 0x0000)
+        rtpc_link = struct.pack("<HI", 0x1840, 0x22222222) + struct.pack(">HH", 0x000A, 0x0011)
+        peer_msg = struct.pack("<HI", 0x1840, 0x33333333) + struct.pack(">HH", 0x000E, 0x0000)
+
+        await ctpp_ch.response_queue.put(renewal)
+        await ctpp_ch.response_queue.put(bundle)
+
+        async def fake_sleep(t):
+            # Inject rtpc_link + peer during the 3s video_config retransmit sleep
+            # so the Step 15 drain can complete without timing out.
+            if t == 3.0:
+                await ctpp_ch.response_queue.put(rtpc_link)
+                await ctpp_ch.response_queue.put(peer_msg)
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+            patch("asyncio.sleep", AsyncMock(side_effect=fake_sleep)),
+        ):
+            await session.start_inbound("SB100001", 0x12345678, renewal_ack_ts=RENEWAL_ACK_TS)
+
+        expected_1800 = encode_call_response_ack(our_addr, our_base, RENEWAL_ACK_TS)
+        expected_1820 = encode_call_response_ack(our_addr, our_base, RENEWAL_ACK_TS, prefix=0x1820)
+        assert mcall(ctpp_ch, expected_1800) in mock_client.send_binary.call_args_list
+        assert mcall(ctpp_ch, expected_1820) in mock_client.send_binary.call_args_list
+        assert session.active is True
+        await session.stop()
+
 
 class TestAnswerInbound:
     """Tests for VideoCallSession.answer_inbound()."""
