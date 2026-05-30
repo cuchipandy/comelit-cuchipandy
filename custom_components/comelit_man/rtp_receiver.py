@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import random
 import struct
 import time
 from typing import Any
@@ -120,6 +121,8 @@ class RtpReceiver:
         self._udp_media_packet_count = 0
         self._tcp_media_packet_count = 0
         self._keepalive_task: asyncio.Task[None] | None = None
+        self._audio_sender_task: asyncio.Task[None] | None = None
+        self._audio_sent_count: int = 0
 
         # Fires as soon as the first video NAL has been queued — callers can
         # await this to know that video is actually flowing before reporting
@@ -192,6 +195,51 @@ class RtpReceiver:
         """Start the continuous keepalive loop (call after video config sent)."""
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
         _LOGGER.debug("UDP keepalive loop started")
+
+    def start_audio_sender(self, device_rtpc_req_id: int) -> None:
+        """Start sending blank PCMA audio frames to the device.
+
+        Uses the req_id from the device's own RTPC channel open in the ICONA
+        header (captured after the device opens its RTPC post-video-config).
+        Sends 160-byte G.711 A-law silence at 20 ms intervals (8 kHz, PT=8).
+        Callers can replace silence with real audio in a future implementation
+        by writing to an injected queue; for now blank frames keep the audio
+        path alive even when no microphone source is available.
+        """
+        self._audio_sender_task = asyncio.create_task(self._audio_send_loop(device_rtpc_req_id))
+        _LOGGER.debug("Audio sender started (device_rtpc_req_id=0x%04X)", device_rtpc_req_id)
+
+    async def _audio_send_loop(self, device_rtpc_req_id: int) -> None:
+        """Send PCMA silence frames every 20 ms on the existing UDP socket."""
+        ssrc = random.randint(0, 0xFFFFFFFF)
+        seq = 0
+        ts = 0
+        _SILENCE = bytes([0xD5] * 160)  # G.711 A-law silence (near-zero signal)
+        _BODY_LEN = 12 + 160  # 12-byte RTP header + 160-byte payload
+        icona_prefix = struct.pack("<BBHH2s", 0x00, 0x06, _BODY_LEN, device_rtpc_req_id, b"\x00\x00")
+        try:
+            while self._running:
+                rtp_header = struct.pack(
+                    ">BBHII",
+                    0x80,  # V=2, P=0, X=0, CC=0
+                    0x08,  # M=0, PT=8 (PCMA G.711 A-law)
+                    seq & 0xFFFF,
+                    ts & 0xFFFFFFFF,
+                    ssrc,
+                )
+                if self._transport:
+                    self._transport.sendto(icona_prefix + rtp_header + _SILENCE)
+                    self._audio_sent_count += 1
+                seq += 1
+                ts = (ts + 160) & 0xFFFFFFFF
+                await asyncio.sleep(0.020)
+        except asyncio.CancelledError:
+            pass
+
+    @property
+    def audio_sent_count(self) -> int:
+        """Number of outbound PCMA audio frames sent to the device."""
+        return self._audio_sent_count
 
     def set_media_req_id(self, media_req_id: int) -> None:
         """Set the media request ID once RTPC2 is opened."""
@@ -589,7 +637,7 @@ class RtpReceiver:
         """
         self._running = False
 
-        for task_attr in ("_keepalive_task", "_decode_task"):
+        for task_attr in ("_keepalive_task", "_decode_task", "_audio_sender_task"):
             task = getattr(self, task_attr)
             setattr(self, task_attr, None)
             if task and not task.done():

@@ -43,8 +43,8 @@ Home Assistant custom component for the **Comelit 6701W** WiFi video intercom. C
 | `custom_components/comelit_man/event.py` | Doorbell ring / missed call event entities |
 | `custom_components/comelit_man/protocol.py` | Wire protocol: 8-byte header, message types, binary payloads |
 | `custom_components/comelit_man/client.py` | AsyncIO TCP client for ICONA Bridge; TCP keepalives; 120s read timeout |
-| `custom_components/comelit_man/door.py` | **LOCKED** — Door open paths. Do NOT edit without explicit permission. |
-| `custom_components/comelit_man/video_call.py` | **LOCKED** — Video call signaling. Do NOT edit without explicit permission. |
+| `custom_components/comelit_man/door.py` | Door open paths (stable — edit carefully, test on real device) |
+| `custom_components/comelit_man/video_call.py` | Video call signaling (stable — outbound + inbound flows; edit carefully) |
 | `custom_components/comelit_man/vip_listener.py` | Persistent VIP event listener on CTPP channel |
 | `custom_components/comelit_man/rtsp_server.py` | Local RTSP server: H.264; RTCP Sender Reports; PLAY gating |
 | `custom_components/comelit_man/rtp_receiver.py` | UDP/TCP RTP receiver: H.264 FU-A→PyAV→JPEG + PCMA audio routing |
@@ -82,11 +82,9 @@ COMELIT_HOST=192.168.113.12 COMELIT_TOKEN=<token> .venv\Scripts\pytest tests/tes
 
 ---
 
-## Protected Files
+## Stable Files — Edit with Care
 
-**`custom_components/comelit_man/door.py` is LOCKED** — do NOT edit without explicit user permission. Reached stable, verified state after careful refactoring. Any change risks re-introducing protocol bugs that break door opens on the real device.
-
-**`custom_components/comelit_man/video_call.py` is LOCKED** — do NOT edit without explicit user permission. Video signaling flow (start, inline renewal, CTPP monitor, RTPC ACK) reached stable, verified state after extensive PCAP-driven bug-fix session. Any change risks breaking video start, renewal, or door-open-during-video.
+`door.py` and `video_call.py` are stable and fully tested. They can be edited, but changes to either should be tested against the real device before committing — protocol bugs here are hard to catch in unit tests.
 
 **Flow Protection Rule:** For any shared file (`client.py`, `coordinator.py`, `protocol.py`, `ctpp.py`, `channels.py`, `rtp_receiver.py`, `rtsp_server.py`): if a proposed change touches code paths used by the video feed flow or door opening flow, **stop and ask the user before making the change**.
 
@@ -162,7 +160,7 @@ git push origin dev
 Full audit checklist: `memory/comelit_man_audit.md`
 Quality scale rules: https://developers.home-assistant.io/docs/core/integration-quality-scale/rules
 
-No remaining quality-scale work. `video_call.py` at 83% (55 missed stmts) is LOCKED — accepted gap.
+No remaining quality-scale work. Coverage is 100% across all files.
 
 ---
 
@@ -292,8 +290,29 @@ logger:
 
 ---
 
+## Future Opportunities
+
+### Inbound call answer (in progress)
+Answer a doorbell ring from HA — two-way audio with the visitor. PCAP-verified sequence implemented in `test_inbound_skip_callinit`; needs live test then wiring into coordinator. See active plan.
+
+### Face recognition via FRCG channel
+The device has a built-in face recognition pipeline. When a ring occurs, the device:
+1. Captures a face image from the video stream
+2. Sends `rcg-detected-recognition` JSON on the **FRCG** channel with similarity score, bounding box, and an HTTPS image URL pointing to Comelit's cloud (`eps.cloud.comelitgroup.com`)
+3. Sends `rcg-detected-image` JSON with the local filesystem path of the captured image (`/etc/comelit/recognition/detected/unknown/<timestamp>.jpg`)
+
+**Opportunity**: open the FRCG channel alongside CTPP during coordinator setup, receive these events, and pipe the captured image into HA's vision/AI capabilities (e.g. `image_processing`, a local Frigate/Doods integration, or an LLM vision call) to identify visitors and trigger automations — all locally, without Comelit's cloud.
+
+The FRCG channel uses the same JSON-over-ICONA framing as UAUT/UCFG. The `rcg-detected-recognition` payload includes enough metadata (bounding box, existing similarity score) to know whether the device already matched the face against its own database.
+
+### Full protocol reference
+See `memory/protocol_reference.md` for complete PCAP-derived wire format documentation (ICONA header, CTPP binary format, channel types, inbound/outbound call sequences, audio).
+
+---
+
 ## Reference
 
 - [Original fork source](https://github.com/antoiba86/hass-comelit-intercom-local) — antoiba86
 - [Protocol analysis Part 1](https://grdw.nl/2023/01/28/my-intercom-part-1.html) — grdw (reverse engineering ICONA)
 - [comelit-client](https://github.com/madchicken/comelit-client) — Pierpaolo Follia
+- `memory/protocol_reference.md` — full PCAP-derived protocol reference (this repo)

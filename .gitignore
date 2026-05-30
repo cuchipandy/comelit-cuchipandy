@@ -23,6 +23,15 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+test_output.txt
+
+# Packet captures and protocol investigation — kept locally, not uploaded
+*.pcap
+compare_pcap2.py
+parse_pcap.py
+compare_output.txt
+tshark_*.txt
+memory/protocol_reference.md
 
 # Home Assistant
 *.log
