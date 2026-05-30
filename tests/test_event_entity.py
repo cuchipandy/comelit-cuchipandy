@@ -9,7 +9,6 @@ import pytest
 from custom_components.comelit_man.event import ComelitDoorbellEvent
 from custom_components.comelit_man.models import PushEvent
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

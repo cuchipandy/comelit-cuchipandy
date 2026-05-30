@@ -174,9 +174,9 @@ class TestStandalonePath:
         with (
             patch("custom_components.comelit_man.door.IconaBridgeClient", return_value=new_client),
             patch("custom_components.comelit_man.door.authenticate", new=AsyncMock()),
+            pytest.raises(DoorOpenError),
         ):
-            with pytest.raises(DoorOpenError):
-                await open_door(_HOST, _PORT, _TOKEN, original_client, _make_config(), _make_door())
+            await open_door(_HOST, _PORT, _TOKEN, original_client, _make_config(), _make_door())
         new_client.remove_channel.assert_called_with("CTPP")
 
 

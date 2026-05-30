@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from custom_components.comelit_man.diagnostics import async_get_config_entry_diagnostics
 from custom_components.comelit_man.repairs import async_create_fix_flow
-
 
 # ---------------------------------------------------------------------------
 # diagnostics

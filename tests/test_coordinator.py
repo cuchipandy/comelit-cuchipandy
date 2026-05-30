@@ -10,7 +10,6 @@ import pytest
 from custom_components.comelit_man.coordinator import ComelitLocalCoordinator
 from custom_components.comelit_man.models import Camera, DeviceConfig, Door
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1060,9 +1059,9 @@ class TestKeepaliveLoopBody:
                 "custom_components.comelit_man.coordinator.asyncio.wait_for",
                 side_effect=raise_cancelled,
             ),
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await coord._keepalive_loop()
+            await coord._keepalive_loop()
 
 
 # ---------------------------------------------------------------------------

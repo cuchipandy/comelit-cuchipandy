@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import io
 import logging
-import random
+import secrets
 import struct
 import time
 from typing import Any
@@ -211,7 +211,7 @@ class RtpReceiver:
 
     async def _audio_send_loop(self, device_rtpc_req_id: int) -> None:
         """Send PCMA silence frames every 20 ms on the existing UDP socket."""
-        ssrc = random.randint(0, 0xFFFFFFFF)
+        ssrc = secrets.randbelow(0x100000000)
         seq = 0
         ts = 0
         _SILENCE = bytes([0xD5] * 160)  # G.711 A-law silence (near-zero signal)

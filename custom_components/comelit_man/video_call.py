@@ -858,8 +858,8 @@ class VideoCallSession:
             )
         _LOGGER.info("Answer peer/accept (0x70) sent")
 
-    async def start_inbound(self, entrance_addr: str, ring_ts: int) -> RtpReceiver:
-        """Execute the inbound call answer sequence (PCAP2-verified, steps 1–20).
+    async def start_inbound(self, entrance_addr: str, ring_ts: int) -> RtpReceiver:  # noqa: C901
+        """Execute the inbound call answer sequence (PCAP2-verified, steps 1-20).
 
         Called when the device initiates a ring (PREFIX_CALL_INIT). Reuses the
         existing CTPP channel opened by the coordinator VIP listener.
@@ -891,7 +891,7 @@ class VideoCallSession:
             # Step 1: ACK ring with fresh_ts
             await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, fresh_ts))
 
-            # Steps 2–4 burst: RTPC OPEN + UDPM OPEN + codec ACK within 8ms.
+            # Steps 2-4 burst: RTPC OPEN + UDPM OPEN + codec ACK within 8ms.
             # PCAP shows all three sent before device ACKs any channel; codec ACK
             # must arrive while channels are still in flight or device ignores it.
             codec_ack = encode_call_ack(our_addr, our_base_addr, fresh_ts, codec_param=0x07)
@@ -943,9 +943,7 @@ class VideoCallSession:
                         msg_type = struct.unpack_from("<H", data, 0)[0]
                         action = struct.unpack_from(">H", data, 6)[0] if len(data) >= 8 else 0
                         if msg_type == 0x18C0 and action == 0x0029:
-                            await client.send_binary(
-                                ctpp, encode_call_response_ack(our_addr, our_base_addr, fresh_ts)
-                            )
+                            await client.send_binary(ctpp, encode_call_response_ack(our_addr, our_base_addr, fresh_ts))
                             continue
                         if msg_type != 0x18C0:
                             break
@@ -967,9 +965,7 @@ class VideoCallSession:
             await asyncio.sleep(0)
 
             # Step 8: Codec ACK retransmit using same counter as ACK2 (PCAP2-verified)
-            await client.send_binary(
-                ctpp, encode_call_ack(our_addr, our_base_addr, call_counter, codec_param=0x07)
-            )
+            await client.send_binary(ctpp, encode_call_ack(our_addr, our_base_addr, call_counter, codec_param=0x07))
 
             rtpc2 = await rtpc2_task
             media_req_id = rtpc2.server_channel_id
@@ -986,11 +982,9 @@ class VideoCallSession:
                 ctpp, encode_rtpc_link(our_addr, our_base_addr, rtpc1.server_channel_id, call_counter)
             )
 
-            # Steps 11–12: Video config (320×240 for inbound, PCAP2-verified) + 3s retransmit
+            # Steps 11-12: Video config (320x240 for inbound, PCAP2-verified) + 3s retransmit
             call_counter = (call_counter + _CTR_INCR_BYTE4) & 0xFFFFFFFF
-            vid_cfg = encode_video_config(
-                our_addr, our_base_addr, media_req_id, call_counter, width=320, height=240
-            )
+            vid_cfg = encode_video_config(our_addr, our_base_addr, media_req_id, call_counter, width=320, height=240)
             await client.send_binary(ctpp, vid_cfg)
             await asyncio.sleep(3.0)
             call_counter = (call_counter + _CTR_INCR_BYTE4) & 0xFFFFFFFF
@@ -1002,9 +996,7 @@ class VideoCallSession:
 
             # Step 13: PEER message — inbound=True uses 48B format with our_base_addr as callee
             call_counter = (call_counter + _CTR_INCR_BYTE4) & 0xFFFFFFFF
-            await client.send_binary(
-                ctpp, encode_answer_peer(our_addr, our_base_addr, call_counter, inbound=True)
-            )
+            await client.send_binary(ctpp, encode_answer_peer(our_addr, our_base_addr, call_counter, inbound=True))
 
             # Step 14: call_accepted sent TO device (reversed from outbound, PCAP2-verified)
             call_counter = (call_counter + _CTR_INCR_BYTE4) & 0xFFFFFFFF
@@ -1048,9 +1040,7 @@ class VideoCallSession:
                 _LOGGER.warning("start_inbound: device RTPC not opened within timeout")
 
             # Step 17: Start TCP media router — device sends video (RTPC2) + audio (RTPC1) via TCP
-            self._tcp_task = asyncio.create_task(
-                self._tcp_inbound_media_router(client, rtpc1, rtpc2, receiver)
-            )
+            self._tcp_task = asyncio.create_task(self._tcp_inbound_media_router(client, rtpc1, rtpc2, receiver))
             self._call_counter = call_counter
             self._ctpp_task = asyncio.create_task(
                 self._ctpp_monitor_loop(
@@ -1068,9 +1058,7 @@ class VideoCallSession:
             try:
                 async with asyncio.timeout(VIDEO_READY_TIMEOUT):
                     await receiver.wait_for_first_video()
-                _LOGGER.info(
-                    "Inbound video call ready: our_addr=%s entrance=%s", our_addr, entrance_addr
-                )
+                _LOGGER.info("Inbound video call ready: our_addr=%s entrance=%s", our_addr, entrance_addr)
             except TimeoutError:
                 _LOGGER.warning(
                     "start_inbound: no video within %.1fs — signaling succeeded but device not sending RTP",

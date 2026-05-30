@@ -28,7 +28,6 @@ from custom_components.comelit_man.config_reader import get_device_config
 from custom_components.comelit_man.rtp_receiver import RtpReceiver
 from custom_components.comelit_man.video_call import VideoCallSession
 
-
 # ---------------------------------------------------------------------------
 # Wire-protocol helpers (mirrors protocol.py without importing it)
 # ---------------------------------------------------------------------------

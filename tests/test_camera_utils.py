@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from custom_components.comelit_man.camera_utils import get_cameras, get_rtsp_url
 from custom_components.comelit_man.models import Camera, DeviceConfig
 

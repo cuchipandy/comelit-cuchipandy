@@ -2,7 +2,9 @@
 
 import struct
 
+from custom_components.comelit_man.channels import ChannelType
 from custom_components.comelit_man.protocol import (
+    _CTPP_LEGACY_TS,
     ACTION_CONFIG_ACK,
     ACTION_HANGUP,
     ACTION_PEER,
@@ -10,7 +12,6 @@ from custom_components.comelit_man.protocol import (
     HEADER_MAGIC,
     HEADER_SIZE,
     MessageType,
-    _CTPP_LEGACY_TS,
     decode_header,
     encode_answer_config_ack,
     encode_answer_peer,
@@ -29,7 +30,6 @@ from custom_components.comelit_man.protocol import (
     is_json_body,
     parse_command_response,
 )
-from custom_components.comelit_man.channels import ChannelType
 
 
 class TestHeader:

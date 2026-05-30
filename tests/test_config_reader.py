@@ -10,7 +10,6 @@ from custom_components.comelit_man.config_reader import _parse_config, get_devic
 from custom_components.comelit_man.exceptions import ProtocolError
 from custom_components.comelit_man.models import DeviceConfig
 
-
 # ---------------------------------------------------------------------------
 # _parse_config — parsing the raw JSON response
 # ---------------------------------------------------------------------------

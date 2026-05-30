@@ -7,17 +7,17 @@ Run with: python3 tests/test_video_minimal.py
 """
 
 import asyncio
+import logging
+import os
 import struct
 import sys
-import os
-import logging
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from custom_components.comelit_man.auth import authenticate
 from custom_components.comelit_man.channels import ChannelType
 from custom_components.comelit_man.client import IconaBridgeClient
-from custom_components.comelit_man.rtp_receiver import RtpReceiver, _build_control_packet
+from custom_components.comelit_man.rtp_receiver import _build_control_packet
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s %(name)s %(message)s")
 _LOGGER = logging.getLogger(__name__)
@@ -114,8 +114,9 @@ async def main():
     )
 
     # Step 5: Send video config directly on CTPP (skip call signaling)
-    from custom_components.comelit_man.protocol import encode_video_config
     import time
+
+    from custom_components.comelit_man.protocol import encode_video_config
 
     ts = int(time.time()) & 0xFFFFFFFF
     vid_config = encode_video_config(caller, CALLEE, rtpc2.request_id, ts)

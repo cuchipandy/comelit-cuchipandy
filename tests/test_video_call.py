@@ -9,10 +9,10 @@ import pytest
 
 from custom_components.comelit_man.exceptions import VideoCallError
 from custom_components.comelit_man.video_call import (
-    VideoCallSession,
     _CTR_INCR_BOTH,
     _CTR_INCR_BYTE4,
     _CTR_INCR_BYTE5,
+    VideoCallSession,
 )
 
 
@@ -160,7 +160,7 @@ class TestCleanup:
 class TestCtppMonitorLoop:
     """Tests for the CTPP monitor loop that ACKs device messages during a call."""
 
-    def _make_session(self) -> "VideoCallSession":
+    def _make_session(self) -> VideoCallSession:
         session = VideoCallSession.__new__(VideoCallSession)
         session._active = True
         session._timeout_task = None
@@ -178,7 +178,6 @@ class TestCtppMonitorLoop:
     async def test_ctpp_keepalive_is_acked(self):
         """0x1840/0x0000 keepalive should be ACKed with 0x1800."""
         import struct
-        from custom_components.comelit_man.protocol import encode_call_response_ack
 
         session = self._make_session()
 
@@ -435,7 +434,7 @@ class TestCtppMonitorLoop:
 class TestAckDeviceRtpcLink:
     """Tests for _ack_device_rtpc_link — accepts both 0x1840 and 0x1860 prefixes."""
 
-    def _make_session(self) -> "VideoCallSession":
+    def _make_session(self) -> VideoCallSession:
         session = VideoCallSession.__new__(VideoCallSession)
         session._active = True
         session._timeout_task = None
@@ -547,10 +546,6 @@ class TestInlineReestablish:
         by VIDEO_CONFIG (0x1840 prefix) to re-establish the media session.
         """
         import struct
-        from custom_components.comelit_man.protocol import (
-            encode_rtpc_link,
-            encode_video_config,
-        )
 
         session = VideoCallSession.__new__(VideoCallSession)
         session._active = True
@@ -665,7 +660,7 @@ class TestInlineReestablish:
 class TestAsyncOpenDoorOnCtpp:
     """Tests for async_open_door_on_ctpp — door open on the active video CTPP."""
 
-    def _make_session(self) -> "VideoCallSession":
+    def _make_session(self) -> VideoCallSession:
         session = VideoCallSession.__new__(VideoCallSession)
         session._active = True
         session._call_counter = 0x10000000
@@ -714,7 +709,7 @@ class TestAsyncOpenDoorOnCtpp:
 class TestAutoTimeoutLoop:
     """Tests for _auto_timeout_loop — session auto-stop after VIDEO_SESSION_TIMEOUT."""
 
-    def _make_session(self, on_timeout=None) -> "VideoCallSession":
+    def _make_session(self, on_timeout=None) -> VideoCallSession:
         session = VideoCallSession.__new__(VideoCallSession)
         session._active = True
         session._timeout_task = None
@@ -893,7 +888,7 @@ class TestTcpVideoLoop:
 class TestCtppMonitorLoopRarePaths:
     """Tests for _ctpp_monitor_loop paths not covered in TestCtppMonitorLoop."""
 
-    def _make_session(self, on_call_end=None) -> "VideoCallSession":
+    def _make_session(self, on_call_end=None) -> VideoCallSession:
         session = VideoCallSession.__new__(VideoCallSession)
         session._active = True
         session._timeout_task = None
@@ -1009,9 +1004,7 @@ class TestSendAnswerSequence:
         mock_client = MagicMock()
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
 
-        await session._send_answer_sequence(
-            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
-        )
+        await session._send_answer_sequence(mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234)
 
         assert len(sent) == 1, f"Expected 1 message, got {len(sent)}"
 
@@ -1025,9 +1018,7 @@ class TestSendAnswerSequence:
         mock_client = MagicMock()
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
 
-        await session._send_answer_sequence(
-            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
-        )
+        await session._send_answer_sequence(mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234)
 
         # encode_answer_peer format: inner_len at bytes[6:8], action at bytes[8:10]
         action = struct.unpack_from(">H", sent[0], 8)[0]
@@ -1043,9 +1034,7 @@ class TestSendAnswerSequence:
         mock_client = MagicMock()
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
 
-        await session._send_answer_sequence(
-            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
-        )
+        await session._send_answer_sequence(mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234)
 
         prefix = struct.unpack_from("<H", sent[0], 0)[0]
         assert prefix == 0x1840, f"Expected prefix 0x1840, got 0x{prefix:04X}"
@@ -1057,9 +1046,7 @@ class TestSendAnswerSequence:
         mock_client = MagicMock()
         mock_client.send_binary = AsyncMock()
 
-        await session._send_answer_sequence(
-            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
-        )
+        await session._send_answer_sequence(mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234)
 
         assert session._call_counter == 0x00500000 + _CTR_INCR_BYTE4
 
@@ -1071,9 +1058,7 @@ class TestSendAnswerSequence:
         mock_client = MagicMock()
         mock_client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
 
-        await session._send_answer_sequence(
-            mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234
-        )
+        await session._send_answer_sequence(mock_client, MagicMock(), "SB0000061", "SB100001", "SB000006", 0, 0x1234)
 
         assert b"SB100001\x00\x00" in sent[0], "Peer/accept must use entrance_addr as callee"
 
@@ -1092,6 +1077,7 @@ class TestSendAnswerSequence:
         )
 
         import struct
+
         embedded_ts = struct.unpack_from("<I", sent[0], 2)[0]
         expected_ts = 0x00900000 + _CTR_INCR_BYTE4
         assert embedded_ts == expected_ts, (
@@ -1275,7 +1261,7 @@ class TestStart:
 
         return config, mock_client, mock_receiver, mock_rtsp
 
-    def _make_session(self, config, mock_client, *, auto_timeout: bool = False, rtsp_server=None) -> "VideoCallSession":
+    def _make_session(self, config, mock_client, *, auto_timeout: bool = False, rtsp_server=None) -> VideoCallSession:
         """Build a VideoCallSession from mocks, bypassing __init__."""
         session = VideoCallSession.__new__(VideoCallSession)
         session._client = mock_client
@@ -1477,7 +1463,6 @@ class TestStartInbound:
     @staticmethod
     def _make_mocks():
         """Return (config, mock_client, mock_receiver, mock_rtsp) for start_inbound()."""
-        import struct
 
         config = MagicMock()
         config.apt_address = "SB000006"
@@ -1528,7 +1513,7 @@ class TestStartInbound:
 
         return config, mock_client, mock_receiver, mock_rtsp, ctpp_ch
 
-    def _make_session(self, config, mock_client, *, rtsp_server=None) -> "VideoCallSession":
+    def _make_session(self, config, mock_client, *, rtsp_server=None) -> VideoCallSession:
         session = VideoCallSession.__new__(VideoCallSession)
         session._client = mock_client
         session._config = config

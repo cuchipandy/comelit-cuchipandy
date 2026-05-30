@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import struct
 import time
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,13 +22,11 @@ from custom_components.comelit_man.vip_listener import (
     MIN_MSG_SIZE,
     PREFIX_ACK,
     PREFIX_CALL_INIT,
-    PREFIX_CONFIRM,
     PREFIX_VIDEO_EVENT,
     PREFIX_VIP_EVENT,
     VipEventListener,
     parse_ctpp_message,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -643,7 +641,6 @@ class TestProcessMessageDebugRaw:
     @pytest.mark.asyncio
     async def test_debug_raw_logged_when_debug_enabled(self):
         """_LOGGER.debug('VIP raw: ...') fires when DEBUG logging is enabled (line 247)."""
-        import logging
         from custom_components.comelit_man import vip_listener as vip_module
 
         cb = MagicMock()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import struct
 import sys
 from types import ModuleType
@@ -202,7 +201,6 @@ class TestDecodeLoopRobustness:
     @pytest.mark.asyncio
     async def test_decode_loop_produces_frames(self):
         """Successful frame decode updates _latest_frame — lines 499-504, 538-542."""
-        import io as _io
         import logging
 
         FAKE_JPEG = b"\xff\xd8\xff\xe0fake_jpeg\xff\xd9"

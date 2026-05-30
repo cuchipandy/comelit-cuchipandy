@@ -51,8 +51,8 @@ async def test_connect_and_authenticate():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
 
     client = IconaBridgeClient(COMELIT_HOST)
     await client.connect()
@@ -69,8 +69,8 @@ async def test_get_config():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
 
     client = IconaBridgeClient(COMELIT_HOST)
@@ -92,8 +92,8 @@ async def test_open_door():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
     from custom_components.comelit_man.door import open_door
     from custom_components.comelit_man.protocol import ICONA_BRIDGE_PORT
@@ -118,8 +118,8 @@ async def test_push_listener():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
     from custom_components.comelit_man.push import register_push
 
@@ -153,7 +153,6 @@ async def _setup_ctpp(client, config) -> int:
 
     Returns the init_ts used in the handshake (needed for subsequent ACKs).
     """
-    import time
     from custom_components.comelit_man.channels import ChannelType
     from custom_components.comelit_man.ctpp import ctpp_init_sequence
 
@@ -342,8 +341,8 @@ async def test_start_video_call():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
     from custom_components.comelit_man.video_call import VideoCallSession
 
@@ -381,11 +380,11 @@ async def test_rtsp_server_streams_video():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
-    from custom_components.comelit_man.video_call import VideoCallSession
     from custom_components.comelit_man.rtsp_server import LocalRtspServer
+    from custom_components.comelit_man.video_call import VideoCallSession
 
     client = IconaBridgeClient(COMELIT_HOST)
     await client.connect()
@@ -453,11 +452,11 @@ async def test_video_then_door_open():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
-    from custom_components.comelit_man.video_call import VideoCallSession
     from custom_components.comelit_man.rtsp_server import LocalRtspServer
+    from custom_components.comelit_man.video_call import VideoCallSession
 
     client = IconaBridgeClient(COMELIT_HOST)
     await client.connect()
@@ -539,11 +538,11 @@ async def test_rtsp_server_streams_audio():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
-    from custom_components.comelit_man.video_call import VideoCallSession
     from custom_components.comelit_man.rtsp_server import LocalRtspServer
+    from custom_components.comelit_man.video_call import VideoCallSession
 
     client = IconaBridgeClient(COMELIT_HOST)
     await client.connect()
@@ -623,8 +622,8 @@ async def test_capture_inbound_ring():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
     from custom_components.comelit_man.vip_listener import parse_ctpp_message
 
@@ -727,12 +726,12 @@ async def test_answer_inbound_call():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
-    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.auth import authenticate
+    from custom_components.comelit_man.client import IconaBridgeClient
     from custom_components.comelit_man.config_reader import get_device_config
-    from custom_components.comelit_man.vip_listener import parse_ctpp_message
-    from custom_components.comelit_man.video_call import VideoCallSession
     from custom_components.comelit_man.rtsp_server import LocalRtspServer
+    from custom_components.comelit_man.video_call import VideoCallSession
+    from custom_components.comelit_man.vip_listener import parse_ctpp_message
 
     PREFIX_CALL_INIT = 0x18C0
 
@@ -752,7 +751,7 @@ async def test_answer_inbound_call():
 
         url = await rtsp_server.start()
         port = rtsp_server._rtsp_port
-        print(f"\n=== ANSWER INBOUND CALL TEST (no VIP ACK) ===")
+        print("\n=== ANSWER INBOUND CALL TEST (no VIP ACK) ===")
         print(f"RTSP server at {url}")
         print("Press the doorbell now (60s window)...")
 
@@ -813,7 +812,7 @@ async def test_answer_inbound_call():
 
         assert video_frames > 0, "No video frames received — VideoCallSession.start() failed"
         assert receiver._audio_packet_count > 0, (
-            f"Device sent 0 PT=8 audio packets — symmetric hypothesis did not produce audio.\n"
+            "Device sent 0 PT=8 audio packets — symmetric hypothesis did not produce audio.\n"
             "Run test_capture_inbound_ring to inspect what the device sends on inbound calls."
         )
 
@@ -847,22 +846,22 @@ async def test_inbound_skip_callinit():
     if not COMELIT_TOKEN:
         pytest.skip("COMELIT_TOKEN not set")
 
+    from custom_components.comelit_man.auth import authenticate
     from custom_components.comelit_man.channels import ChannelType
     from custom_components.comelit_man.client import IconaBridgeClient
-    from custom_components.comelit_man.auth import authenticate
     from custom_components.comelit_man.config_reader import get_device_config
-    from custom_components.comelit_man.vip_listener import parse_ctpp_message
-    from custom_components.comelit_man.rtp_receiver import RtpReceiver
-    from custom_components.comelit_man.rtsp_server import LocalRtspServer
     from custom_components.comelit_man.protocol import (
         encode_answer_peer,
-        encode_call_ack,
         encode_call_accepted,
+        encode_call_ack,
         encode_call_response_ack,
         encode_rtpc2_ready,
         encode_rtpc_link,
         encode_video_config,
     )
+    from custom_components.comelit_man.rtp_receiver import RtpReceiver
+    from custom_components.comelit_man.rtsp_server import LocalRtspServer
+    from custom_components.comelit_man.vip_listener import parse_ctpp_message
 
     _CTR_INCR_BYTE4 = 0x00010000
     _CTR_INCR_BYTE5 = 0x01000000
@@ -954,7 +953,7 @@ async def test_inbound_skip_callinit():
         # when device opens its own RTPC channel after video config.
         device_rtpc = client.register_placeholder_channel("RTPC_DEVICE")
 
-        print(f"\n=== INBOUND ANSWER TEST (PCAP-correct) ===")
+        print("\n=== INBOUND ANSWER TEST (PCAP-correct) ===")
         print(f"RTSP at {url}  our_addr={our_addr}  our_base={our_base_addr}")
         print("Press the doorbell now (60s window)...")
 
@@ -993,7 +992,9 @@ async def test_inbound_skip_callinit():
                 await client.send_binary(
                     ctpp, encode_call_response_ack(our_addr, our_base_addr, _renewal_ack_ts, prefix=0x1820)
                 )
-                print(f"  [waiting] ACK'd keepalive renewal (ack_ts=0x{_renewal_ack_ts:08X}) cap_bytes={cap_bytes} full={data.hex(' ')}")
+                print(
+                    f"  [waiting] ACK'd keepalive renewal (ack_ts=0x{_renewal_ack_ts:08X}) cap_bytes={cap_bytes} full={data.hex(' ')}"
+                )
         else:
             pytest.skip("No ring within 60s — press doorbell to run this test")
 
@@ -1116,7 +1117,9 @@ async def test_inbound_skip_callinit():
         # --- Step 13: Retransmit video config after 3s (+B4, matches PCAP2 ~3s interval) ---
         await asyncio.sleep(3.0)
         call_counter = (call_counter + _CTR_INCR_BYTE4) & 0xFFFFFFFF
-        await client.send_binary(ctpp, encode_video_config(our_addr, our_base_addr, media_req_id, call_counter, width=320, height=240))
+        await client.send_binary(
+            ctpp, encode_video_config(our_addr, our_base_addr, media_req_id, call_counter, width=320, height=240)
+        )
         print(f"  [{elapsed():.2f}s] Retransmitted video config counter=0x{call_counter:08X}")
 
         # Brief wait for device to process before PEER

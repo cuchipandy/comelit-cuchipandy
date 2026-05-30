@@ -18,8 +18,6 @@ def _mock_client(*, auth_error: bool = False, connect_error: Exception | None = 
     client.connect = AsyncMock(side_effect=connect_error)
     client.disconnect = AsyncMock()
     if auth_error:
-        from custom_components.comelit_man.exceptions import AuthenticationError
-
         client.connect = AsyncMock()
     return client
 
