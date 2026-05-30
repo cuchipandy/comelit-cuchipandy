@@ -112,7 +112,6 @@ async def test_open_door():
         await client.disconnect()
 
 
-
 # ---------------------------------------------------------------------------
 # CTPP setup helper — mirrors coordinator._open_ctpp_channels
 # ---------------------------------------------------------------------------
