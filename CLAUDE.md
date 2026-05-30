@@ -281,7 +281,7 @@ logger:
 
 ## Device Behavior & Quirks
 
-- The intercom **disconnects from WiFi when idle** — physically wake it before any network test
+- The intercom has a DIP switch for always-on WiFi — this device is configured with it enabled; the device does NOT sleep and does not need to be woken before network tests
 - Open ports: **53** (DNS), **8080** (HTTP), **8443** (HTTPS), **64100** (ICONA)
 - Send UDP `INFO` to port **24199** for hardware discovery (MAC address, etc.)
 - VIP listener receives actual call events (doorbell ring, door opened) on CTPP — NOT on PUSH channel

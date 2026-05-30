@@ -417,6 +417,72 @@ class TestProcessMessage:
             assert actual_ts == expected_ts
 
     @pytest.mark.asyncio
+    async def test_renewal_ack_addresses_extracted_from_renewal_message(self):
+        """Renewal ACK caller/callee must come from the renewal message, not config.
+
+        The device's binary VIP address may differ from the apt-address returned
+        by the JSON config API.  The renewal embeds the device's own address:
+        the full address (base+subaddress) appears twice, the base address once.
+        The ACK must mirror those addresses back — not the config addresses.
+        """
+        cb = MagicMock()
+        # Config uses SB000006; device's VIP address is SB000003.
+        listener = _make_listener(cb, apt_address="SB000006", apt_subaddress=1, init_ts=0x12000000)
+
+        # Renewal from device: addr_with_sub=SB0000031 (×2), apt_addr=SB000003 (×1)
+        # (mirrors what encode_ctpp_init embeds, using the device's own VIP address)
+        device_renewal_addrs = ["SB0000031", "SB000003", "SB0000031"]
+        data = _make_ctpp_msg(
+            PREFIX_VIP_EVENT, 0xDEADBEEF, ACTION_REGISTRATION_RENEWAL,
+            flags=0, addresses=device_renewal_addrs,
+        )
+
+        sent_payloads: list[bytes] = []
+
+        async def capture_send(channel, payload):
+            sent_payloads.append(payload)
+
+        listener._client.send_binary = AsyncMock(side_effect=capture_send)
+        await listener._process_message(data)
+
+        assert len(sent_payloads) == 2
+        # Decode caller and callee from each payload.
+        # ACK format: [prefix LE16][ts LE32][action BE16][0xFFFFFFFF][caller\0][callee\0\0]
+        for payload in sent_payloads:
+            # Skip prefix(2) + ts(4) + action(2) + 0xFFFFFFFF(4) = 12 bytes
+            rest = payload[12:]
+            parts = rest.split(b"\x00")
+            caller = parts[0].decode("ascii")
+            callee = parts[1].decode("ascii")
+            assert caller == "SB0000031", f"Expected SB0000031, got {caller}"
+            assert callee == "SB000003", f"Expected SB000003, got {callee}"
+
+    @pytest.mark.asyncio
+    async def test_renewal_ack_falls_back_to_config_when_no_addresses(self):
+        """When renewal has no addresses, ACK falls back to config apt_address."""
+        cb = MagicMock()
+        listener = _make_listener(cb, apt_address="SB000006", apt_subaddress=1, init_ts=0x12000000)
+
+        data = _make_ctpp_msg(PREFIX_VIP_EVENT, 0x12345678, ACTION_REGISTRATION_RENEWAL, flags=0)
+
+        sent_payloads: list[bytes] = []
+
+        async def capture_send(channel, payload):
+            sent_payloads.append(payload)
+
+        listener._client.send_binary = AsyncMock(side_effect=capture_send)
+        await listener._process_message(data)
+
+        assert len(sent_payloads) == 2
+        for payload in sent_payloads:
+            rest = payload[12:]
+            parts = rest.split(b"\x00")
+            caller = parts[0].decode("ascii")
+            callee = parts[1].decode("ascii")
+            assert caller == "SB0000061"
+            assert callee == "SB000006"
+
+    @pytest.mark.asyncio
     async def test_send_ack_failure_does_not_raise(self):
         """ACK send failure is logged but must not propagate."""
         cb = MagicMock()

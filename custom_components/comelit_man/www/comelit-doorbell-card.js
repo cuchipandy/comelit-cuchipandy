@@ -92,7 +92,7 @@ class ComelitDoorbellCard extends HTMLElement {
     if (lastChanged === this._lastEventTs) return;
     this._lastEventTs = lastChanged;
 
-    if (entity.state !== "ring") return;
+    if (entity.attributes?.event_type !== "ring") return;
 
     // Ignore stale events (older than dismiss_after) — e.g. on HA restart
     const dismissMs = (this._config.dismiss_after ?? 30) * 1000;
@@ -359,7 +359,9 @@ class ComelitDoorbellCard extends HTMLElement {
   }
 }
 
-customElements.define("comelit-doorbell-card", ComelitDoorbellCard);
+if (!customElements.get("comelit-doorbell-card")) {
+  customElements.define("comelit-doorbell-card", ComelitDoorbellCard);
+}
 
 window.customCards = window.customCards || [];
 window.customCards.push({
