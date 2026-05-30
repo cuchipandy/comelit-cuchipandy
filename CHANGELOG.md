@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+### Bug fixes
+
+- **Answer Doorbell button now enabled by default** — `button.<name>_answer_doorbell` is visible without manually enabling it in the entity registry
+- **Standard `ring` event type** — `event.<name>_doorbell` now fires `ring` (HA standard for `EventDeviceClass.DOORBELL`) instead of the custom `doorbell_ring` type; automations using `to: "doorbell_ring"` must be updated to `to: "ring"`
+
 ## 1.1.0
 
 ### New features

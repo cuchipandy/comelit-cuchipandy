@@ -152,8 +152,6 @@ class ComelitAnswerDoorbellButton(ComelitEntity, ButtonEntity):
     """Button entity to answer an active inbound doorbell call with two-way audio."""
 
     _attr_translation_key = "answer_doorbell"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,

@@ -89,8 +89,8 @@ class TestDeviceConfig:
 
 class TestPushEvent:
     def test_required_field(self):
-        ev = PushEvent(event_type="doorbell_ring")
-        assert ev.event_type == "doorbell_ring"
+        ev = PushEvent(event_type="ring")
+        assert ev.event_type == "ring"
 
     def test_defaults(self):
         ev = PushEvent(event_type="ring")

@@ -111,6 +111,7 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
     ) -> None:
         """Initialize the intercom camera entity."""
         super().__init__(coordinator, entry_id)
+        Camera.__init__(self)
         self._attr_unique_id = f"{entry_id}_intercom_camera"
         self._remove_push_cb: Callable[[], None] | None = None
         self._remove_stop_video_cb: Callable[[], None] | None = None

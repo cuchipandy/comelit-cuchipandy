@@ -92,7 +92,7 @@ class ComelitDoorbellCard extends HTMLElement {
     if (lastChanged === this._lastEventTs) return;
     this._lastEventTs = lastChanged;
 
-    if (entity.state !== "doorbell_ring") return;
+    if (entity.state !== "ring") return;
 
     // Ignore stale events (older than dismiss_after) — e.g. on HA restart
     const dismissMs = (this._config.dismiss_after ?? 30) * 1000;

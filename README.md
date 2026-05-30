@@ -88,7 +88,8 @@ The integration does not persist any state outside the config entry, so no manua
 | `button.comelit_intercom_stop_video_feed` | Stop the active video call |
 | `camera.comelit_intercom_live_feed` | Live video stream from the door panel via local RTSP |
 | `camera.comelit_intercom_<name>` | RTSP stream from each additional configured camera |
-| `event.comelit_intercom_doorbell` | Fires `doorbell_ring` and `missed_call` events for automations |
+| `event.comelit_intercom_doorbell` | Fires `ring`, `missed_call`, and `door_opened` events for automations |
+| `button.comelit_intercom_answer_doorbell` | Start two-way audio on an active inbound call |
 
 ### Lovelace Cards
 
@@ -109,7 +110,7 @@ stop_entity: button.comelit_intercom_stop_video_feed
 type: custom:comelit-doorbell-card
 doorbell_entity: event.comelit_intercom_doorbell
 camera_entity: camera.comelit_intercom_live_feed
-start_entity: button.comelit_intercom_start_video_feed
+start_entity: button.comelit_intercom_answer_doorbell  # starts two-way audio
 stop_entity: button.comelit_intercom_stop_video_feed
 dismiss_after: 30  # optional, default 30s
 ```
@@ -118,7 +119,7 @@ States: **Idle** (thumbnail + doorbell badge) → **Ringing** (pulsing icon + An
 
 ### Doorbell Notifications
 
-When someone rings the doorbell, `event.comelit_intercom_doorbell` fires a `doorbell_ring` event. Video does **not** start automatically — you decide what happens via automations.
+When someone rings the doorbell, `event.comelit_intercom_doorbell` fires a `ring` event. Video starts automatically (the integration answers the inbound call). Use automations to send notifications, open the door, or take snapshots.
 
 **Basic notification:**
 
@@ -128,7 +129,7 @@ mode: single
 triggers:
   - platform: state
     entity_id: event.comelit_intercom_doorbell
-    to: "doorbell_ring"
+    to: "ring"
 conditions: []
 actions:
   - action: notify.mobile_app_your_phone
@@ -145,7 +146,7 @@ mode: single
 triggers:
   - platform: state
     entity_id: event.comelit_intercom_doorbell
-    to: "doorbell_ring"
+    to: "ring"
 conditions: []
 actions:
   - action: notify.mobile_app_your_phone
@@ -169,7 +170,7 @@ mode: single
 triggers:
   - platform: state
     entity_id: event.comelit_intercom_doorbell
-    to: "doorbell_ring"
+    to: "ring"
 conditions: []
 actions:
   - action: notify.mobile_app_your_phone

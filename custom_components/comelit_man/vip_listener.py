@@ -370,7 +370,7 @@ class VipEventListener:
                 except Exception:
                     _LOGGER.exception("Error in inbound ring callback")
             else:
-                self._fire_event("doorbell_ring", addresses)
+                self._fire_event("ring", addresses)
             return
 
         # 0x1860 = VIP FSM event. Action encodes the event subtype — see ACTION_* constants.
@@ -383,7 +383,7 @@ class VipEventListener:
             )
             if action == ACTION_IN_ALERTING:
                 # IN_ALERTING: someone rang the doorbell
-                self._fire_event("doorbell_ring", addresses)
+                self._fire_event("ring", addresses)
             elif action == ACTION_CONNECTED:
                 # CONNECTED: call was answered
                 pass
