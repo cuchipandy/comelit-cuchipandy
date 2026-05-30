@@ -9,6 +9,8 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+import aiohttp
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -185,6 +187,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             self._rtsp_url = await rtsp.start()
             self._rtsp_server = rtsp
             _LOGGER.info("Persistent RTSP server started: %s", self._rtsp_url)
+            await self._register_go2rtc_stream()
 
         self.async_set_updated_data(self._config)
         _LOGGER.info(
@@ -266,6 +269,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 await self._vip_listener.stop()
             self._vip_listener = None
         if self._rtsp_server:
+            await self._deregister_go2rtc_stream()
             with contextlib.suppress(Exception):
                 await self._rtsp_server.stop()
             self._rtsp_server = None
@@ -427,6 +431,8 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             # user-visible latency stays at ~3 s.
             await session.start()
             _LOGGER.info("Video session ready in %.1fs", time.monotonic() - t0)
+            if self._rtsp_server and session.rtp_receiver:
+                session.rtp_receiver.attach_backchannel_queue(self._rtsp_server.backchannel_queue)
             self._video_session = session
             self._video_ready_event.set()
             # Unblock PLAY handlers that have been waiting inside the RTSP
@@ -524,6 +530,8 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 await self._ensure_vip_listener()
                 return
 
+            if self._rtsp_server and session.rtp_receiver:
+                session.rtp_receiver.attach_backchannel_queue(self._rtsp_server.backchannel_queue)
             self._video_session = session
             self._video_ready_event.set()
             if self._rtsp_server:
@@ -543,6 +551,40 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         """Start two-way audio for an active inbound call."""
         if self._video_session and self._video_session.active:
             self._video_session.answer_inbound()
+
+    async def _register_go2rtc_stream(self) -> None:
+        """Register our RTSP stream with go2rtc, enabling backchannel support.
+
+        go2rtc must be running (bundled in HA OS/Container/Supervised).
+        Failures are logged at debug level and do not block setup — the
+        integration still works without go2rtc (RTSP/HLS only, no WebRTC).
+        """
+        if not self._rtsp_url:
+            return
+        name = f"comelit_man_{self.config_entry.entry_id}"  # type: ignore[union-attr]
+        src = f"{self._rtsp_url}#backchannel=1"
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.put(
+                    "http://127.0.0.1:1984/api/streams",
+                    params={"name": name, "src": src},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+            _LOGGER.debug("Registered go2rtc stream: %s -> %s", name, src)
+        except Exception:
+            _LOGGER.debug("go2rtc unavailable — backchannel inactive (RTSP/HLS still works)")
+
+    async def _deregister_go2rtc_stream(self) -> None:
+        """Remove our stream registration from go2rtc on shutdown."""
+        name = f"comelit_man_{self.config_entry.entry_id}"  # type: ignore[union-attr]
+        with contextlib.suppress(Exception):
+            async with aiohttp.ClientSession() as session:
+                await session.delete(
+                    "http://127.0.0.1:1984/api/streams",
+                    params={"name": name},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+            _LOGGER.debug("Deregistered go2rtc stream: %s", name)
 
     @property
     def video_stopped_by_user(self) -> bool:

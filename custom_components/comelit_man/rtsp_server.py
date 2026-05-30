@@ -101,6 +101,10 @@ class LocalRtspServer:
         # RTP pass-through queue: raw video RTP packets forwarded with
         # header rewrite only (no NAL reassembly / FU-A re-fragmentation).
         self.rtp_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=500)
+        # Backchannel queue: PCMA audio payloads received from go2rtc mic
+        # input (via ANNOUNCE/RECORD).  rtp_receiver reads from this queue
+        # to replace silence with real audio in _audio_send_loop.
+        self.backchannel_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=500)
 
         # UDP sockets — fallback for clients that request UDP transport
         self._video_sock: socket.socket | None = None
@@ -346,7 +350,7 @@ class LocalRtspServer:
     # RTSP request handling
     # ------------------------------------------------------------------
 
-    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:  # noqa: C901
         """Handle one RTSP client connection."""
         peer = writer.get_extra_info("peername")
         client_host = peer[0] if peer else "unknown"
@@ -371,7 +375,9 @@ class LocalRtspServer:
                 _LOGGER.debug("RTSP %s from %s", method, client_host)
 
                 if method == "OPTIONS":
-                    self._send(writer, cseq, extra=("Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN\r\n"))
+                    self._send(
+                        writer, cseq, extra=("Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN, ANNOUNCE, RECORD\r\n")
+                    )
 
                 elif method == "DESCRIBE":
                     sdp = self._build_sdp().encode()
@@ -433,6 +439,18 @@ class LocalRtspServer:
 
                 elif method == "TEARDOWN":
                     self._send(writer, cseq, extra=f"Session: {self._session_id}\r\n")
+                    break
+
+                elif method == "ANNOUNCE":
+                    # go2rtc backchannel: drain the SDP body then hand off
+                    content_len = int(headers.get("content-length", 0))
+                    if content_len > 0:
+                        with contextlib.suppress(asyncio.IncompleteReadError):
+                            await reader.readexactly(content_len)
+                    self._send(writer, cseq)
+                    await writer.drain()
+                    _LOGGER.debug("Backchannel ANNOUNCE from %s", client_host)
+                    await self._handle_backchannel(reader, writer, client_host)
                     break
 
                 else:
@@ -546,7 +564,13 @@ class LocalRtspServer:
             "m=audio 0 RTP/AVP 8\r\n"
             "c=IN IP4 0.0.0.0\r\n"
             "a=rtpmap:8 PCMA/8000\r\n"
+            "a=sendonly\r\n"
             "a=control:audio\r\n"
+            "m=audio 0 RTP/AVP 8\r\n"
+            "c=IN IP4 0.0.0.0\r\n"
+            "a=rtpmap:8 PCMA/8000\r\n"
+            "a=recvonly\r\n"
+            "a=control:backchannel\r\n"
         )
 
     async def _wait_for_teardown(self, reader: asyncio.StreamReader) -> None:
@@ -558,6 +582,90 @@ class LocalRtspServer:
                     break
             except TimeoutError:
                 pass
+
+    async def _handle_backchannel(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        client_host: str,
+    ) -> None:
+        """Handle SETUP + RECORD for a backchannel connection (after ANNOUNCE accepted)."""
+        backchannel_ch = 0
+        try:
+            while self._running:
+                parsed = await self._read_rtsp_request(reader)
+                if parsed is None:
+                    break
+                method, _url, hdrs, cseq = parsed
+                _LOGGER.debug("Backchannel %s from %s", method, client_host)
+
+                if method == "SETUP":
+                    transport_hdr = hdrs.get("transport", "")
+                    for part in transport_hdr.split(";"):
+                        if "interleaved" in part:
+                            backchannel_ch = int(part.split("=", 1)[1].split("-")[0])
+                    self._send(
+                        writer,
+                        cseq,
+                        extra=f"Session: {self._session_id}\r\nTransport: RTP/AVP/TCP;unicast;interleaved={backchannel_ch}-{backchannel_ch + 1}\r\n",
+                    )
+                    await writer.drain()
+
+                elif method == "RECORD":
+                    self._send(writer, cseq, extra=f"Session: {self._session_id}\r\n")
+                    await writer.drain()
+                    _LOGGER.info("Backchannel RECORD from %s — mic audio flowing", client_host)
+                    await self._receive_backchannel_rtp(reader)
+                    break
+
+                elif method == "TEARDOWN":
+                    self._send(writer, cseq, extra=f"Session: {self._session_id}\r\n")
+                    await writer.drain()
+                    break
+
+                else:
+                    writer.write(f"RTSP/1.0 405 Method Not Allowed\r\nCSeq: {cseq}\r\n\r\n".encode())
+                    await writer.drain()
+        except (TimeoutError, ConnectionError, asyncio.IncompleteReadError):
+            pass
+        except Exception:
+            _LOGGER.debug("Backchannel error", exc_info=True)
+        _LOGGER.debug("Backchannel connection from %s closed", client_host)
+
+    async def _receive_backchannel_rtp(self, reader: asyncio.StreamReader) -> None:
+        """Read interleaved RTP from backchannel connection and queue audio payloads."""
+        while self._running:
+            try:
+                header = await asyncio.wait_for(reader.readexactly(4), timeout=30.0)
+            except asyncio.IncompleteReadError:
+                break
+            except ConnectionError:
+                break
+            except TimeoutError:
+                continue
+
+            if header[0] != 0x24:
+                # Non-interleaved data (e.g. TEARDOWN) — drain and exit
+                rest = header
+                with contextlib.suppress(Exception):
+                    while b"\r\n\r\n" not in rest:
+                        chunk = await asyncio.wait_for(reader.read(256), timeout=5.0)
+                        if not chunk:
+                            break
+                        rest += chunk
+                break
+
+            length = struct.unpack("!H", header[2:4])[0]
+            try:
+                rtp = await asyncio.wait_for(reader.readexactly(length), timeout=5.0)
+            except (asyncio.IncompleteReadError, TimeoutError):
+                break
+
+            if len(rtp) >= 12:
+                payload = rtp[12:]
+                if payload:
+                    with contextlib.suppress(asyncio.QueueFull):
+                        self.backchannel_queue.put_nowait(payload)
 
     # ------------------------------------------------------------------
     # RTP broadcast

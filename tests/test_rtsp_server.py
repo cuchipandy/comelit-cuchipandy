@@ -1212,6 +1212,12 @@ class _RequestReader:
     async def read(self, n: int) -> bytes:
         return self._chunks.pop(0) if self._chunks else b""
 
+    async def readexactly(self, n: int) -> bytes:
+        chunk = self._chunks.pop(0) if self._chunks else b""
+        if not chunk:
+            raise asyncio.IncompleteReadError(b"", n)
+        return chunk[:n]
+
 
 class _ResponseWriter:
     """Fake StreamWriter that captures all written bytes."""
@@ -2113,7 +2119,7 @@ class TestHandleClient:
         server._running = True
         reader = _RequestReader(
             [
-                b"ANNOUNCE rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+                b"FOOBAR rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
                 b"",
             ]
         )
@@ -2245,3 +2251,118 @@ class TestHandleClient:
         assert b"application/sdp" in resp  # DESCRIBE
         assert b"Session:" in resp  # SETUP/PLAY
         assert len(server._active_clients) == 0  # removed in finally
+
+
+# ---------------------------------------------------------------------------
+# Backchannel (ANNOUNCE / RECORD) tests
+# ---------------------------------------------------------------------------
+
+
+class TestBackchannel:
+    """Tests for RTSP backchannel support (go2rtc mic audio path)."""
+
+    def test_backchannel_sdp_has_recvonly_track(self):
+        """SDP DESCRIBE response advertises a recvonly backchannel audio track."""
+        server = LocalRtspServer()
+        sdp = server._build_sdp()
+        assert "a=recvonly" in sdp
+        assert "a=control:backchannel" in sdp
+
+    def test_main_audio_sdp_has_sendonly(self):
+        """Main audio track is marked sendonly so clients don't try to push on it."""
+        server = LocalRtspServer()
+        sdp = server._build_sdp()
+        assert "a=sendonly" in sdp
+        assert "a=control:audio" in sdp
+
+    @pytest.mark.asyncio
+    async def test_options_includes_announce_record(self):
+        """OPTIONS response Public header includes ANNOUNCE and RECORD."""
+        server = LocalRtspServer()
+        server._running = True
+        reader = _RequestReader(
+            [
+                b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+                b"",
+            ]
+        )
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        assert b"ANNOUNCE" in writer.data
+        assert b"RECORD" in writer.data
+
+    @pytest.mark.asyncio
+    async def test_receive_backchannel_rtp_populates_queue(self):
+        """Interleaved RTP received during RECORD lands in backchannel_queue."""
+        server = LocalRtspServer()
+        server._running = True
+
+        audio_payload = bytes([0xAB] * 160)
+        rtp = struct.pack(">BBHII", 0x80, 0x08, 0, 0, 0x12345678) + audio_payload
+        interleaved = struct.pack("!BBH", 0x24, 6, len(rtp)) + rtp
+
+        class _ExactReader:
+            def __init__(self, data: bytes) -> None:
+                self._data = bytearray(data)
+                self._pos = 0
+
+            async def readexactly(self, n: int) -> bytes:
+                end = self._pos + n
+                if end > len(self._data):
+                    raise asyncio.IncompleteReadError(b"", n)
+                result = bytes(self._data[self._pos : end])
+                self._pos = end
+                return result
+
+        await server._receive_backchannel_rtp(_ExactReader(interleaved))
+
+        assert not server.backchannel_queue.empty()
+        received = server.backchannel_queue.get_nowait()
+        assert received == audio_payload
+
+    @pytest.mark.asyncio
+    async def test_receive_backchannel_rtp_ignores_short_rtp(self):
+        """RTP packets shorter than 12 bytes are silently dropped."""
+        server = LocalRtspServer()
+        server._running = True
+
+        # Malformed RTP: only 8 bytes (header incomplete)
+        short_rtp = bytes(8)
+        interleaved = struct.pack("!BBH", 0x24, 0, len(short_rtp)) + short_rtp
+
+        class _ExactReader:
+            def __init__(self, data: bytes) -> None:
+                self._data = bytearray(data)
+                self._pos = 0
+
+            async def readexactly(self, n: int) -> bytes:
+                end = self._pos + n
+                if end > len(self._data):
+                    raise asyncio.IncompleteReadError(b"", n)
+                result = bytes(self._data[self._pos : end])
+                self._pos = end
+                return result
+
+        await server._receive_backchannel_rtp(_ExactReader(interleaved))
+        assert server.backchannel_queue.empty()
+
+    @pytest.mark.asyncio
+    async def test_announce_flow_through_handle_client(self):
+        """ANNOUNCE through _handle_client reads body and sends 200 OK."""
+        server = LocalRtspServer()
+        server._running = True
+
+        sdp_body = b"v=0\r\nm=audio 0 RTP/AVP 8\r\n"
+        announce = (
+            f"ANNOUNCE rtsp://127.0.0.1/intercom/backchannel RTSP/1.0\r\n"
+            f"CSeq: 1\r\n"
+            f"Content-Type: application/sdp\r\n"
+            f"Content-Length: {len(sdp_body)}\r\n"
+            f"\r\n"
+        ).encode()
+
+        reader = _RequestReader([announce + sdp_body, b""])
+        writer = _ResponseWriter()
+        await server._handle_client(reader, writer)
+        # ANNOUNCE must be answered with 200 OK
+        assert b"RTSP/1.0 200 OK" in writer.data

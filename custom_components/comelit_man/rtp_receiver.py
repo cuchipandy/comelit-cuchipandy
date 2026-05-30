@@ -107,6 +107,9 @@ class RtpReceiver:
         # RTP pass-through queue: raw video RTP packets forwarded directly
         # to the RTSP server, bypassing NAL reassembly + re-fragmentation.
         self._rtsp_rtp_queue: asyncio.Queue[bytes] | None = None
+        # Backchannel queue: PCMA payloads received from go2rtc mic input.
+        # When set, _audio_send_loop prefers frames from this queue over silence.
+        self._backchannel_queue: asyncio.Queue[bytes] | None = None
 
         # Audio packet counter (for logging/stats)
         self._audio_packet_count = 0
@@ -162,6 +165,15 @@ class RtpReceiver:
         self._rtsp_rtp_queue = rtp_queue
         _LOGGER.debug("RTSP queues attached (rtp_passthrough=%s)", rtp_queue is not None)
 
+    def attach_backchannel_queue(self, queue: asyncio.Queue[bytes]) -> None:
+        """Attach the RTSP server's backchannel queue for mic audio input.
+
+        When set, _audio_send_loop sends frames from this queue to the device
+        instead of silence, enabling two-way audio via go2rtc.
+        """
+        self._backchannel_queue = queue
+        _LOGGER.debug("Backchannel queue attached")
+
     async def start_control(self) -> int:
         """Open UDP socket and send 2 discovery packets.
 
@@ -210,7 +222,11 @@ class RtpReceiver:
         _LOGGER.debug("Audio sender started (device_rtpc_req_id=0x%04X)", device_rtpc_req_id)
 
     async def _audio_send_loop(self, device_rtpc_req_id: int) -> None:
-        """Send PCMA silence frames every 20 ms on the existing UDP socket."""
+        """Send PCMA audio frames every 20 ms on the existing UDP socket.
+
+        When a backchannel queue is attached (go2rtc mic audio), real frames
+        are sent; otherwise silence (0xD5) fills each 20 ms slot.
+        """
         ssrc = secrets.randbelow(0x100000000)
         seq = 0
         ts = 0
@@ -219,6 +235,10 @@ class RtpReceiver:
         icona_prefix = struct.pack("<BBHH2s", 0x00, 0x06, _BODY_LEN, device_rtpc_req_id, b"\x00\x00")
         try:
             while self._running:
+                payload = _SILENCE
+                if self._backchannel_queue is not None:
+                    with contextlib.suppress(asyncio.QueueEmpty):
+                        payload = self._backchannel_queue.get_nowait()
                 rtp_header = struct.pack(
                     ">BBHII",
                     0x80,  # V=2, P=0, X=0, CC=0
@@ -228,7 +248,7 @@ class RtpReceiver:
                     ssrc,
                 )
                 if self._transport:
-                    self._transport.sendto(icona_prefix + rtp_header + _SILENCE)
+                    self._transport.sendto(icona_prefix + rtp_header + payload[:160])
                     self._audio_sent_count += 1
                 seq += 1
                 ts = (ts + 160) & 0xFFFFFFFF
