@@ -135,7 +135,7 @@ def test_on_push_skips_when_already_active(camera):
     camera.coordinator.video_session = session
     camera.hass = MagicMock()
 
-    event = PushEvent(event_type="doorbell_ring")
+    event = PushEvent(event_type="ring")
     camera._on_push(event)
 
     camera.hass.async_create_task.assert_not_called()
@@ -146,7 +146,7 @@ def test_on_push_does_not_auto_start_video(camera):
     camera.coordinator.video_session = None
     camera.hass = MagicMock()
 
-    event = PushEvent(event_type="doorbell_ring")
+    event = PushEvent(event_type="ring")
     camera._on_push(event)
 
     camera.hass.async_create_task.assert_not_called()

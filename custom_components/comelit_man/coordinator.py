@@ -537,15 +537,15 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             if self._rtsp_server:
                 self._rtsp_server.mark_ready()
             await self._notify_video_state_change()
-            # Fire doorbell_ring AFTER video is flowing so automations see the stream
+            # Fire ring AFTER video is flowing so automations see the stream
             self._on_push_event(
                 PushEvent(
-                    event_type="doorbell_ring",
+                    event_type="ring",
                     apt_address=entrance_addr,
                     timestamp=time.time(),
                 )
             )
-            _LOGGER.info("Inbound video ready, doorbell_ring fired (entrance=%s)", entrance_addr)
+            _LOGGER.info("Inbound video ready, ring fired (entrance=%s)", entrance_addr)
 
     async def async_answer_inbound(self) -> None:
         """Start two-way audio for an active inbound call."""
