@@ -9,6 +9,9 @@
       },
       "video_stop": {
         "name": "Stop Video Feed"
+      },
+      "answer_doorbell": {
+        "name": "Answer Doorbell"
       }
     },
     "camera": {

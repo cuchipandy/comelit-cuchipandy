@@ -1469,3 +1469,157 @@ class TestStart:
         ):
             with pytest.raises(VideoCallError):
                 await session.start()
+
+
+class TestStartInbound:
+    """Tests for VideoCallSession.start_inbound()."""
+
+    @staticmethod
+    def _make_mocks():
+        """Return (config, mock_client, mock_receiver, mock_rtsp) for start_inbound()."""
+        import struct
+
+        config = MagicMock()
+        config.apt_address = "SB000006"
+        config.apt_subaddress = "1"
+
+        ctpp_ch = MagicMock()
+        ctpp_ch.server_channel_id = 0x0010
+        ctpp_ch.response_queue = asyncio.Queue()
+
+        channel_id_counter = [0x0020]
+
+        async def mock_open_channel(name, channel_type, extra_data=None, trailing_byte=0, wire_name=None):
+            ch = MagicMock()
+            ch.server_channel_id = channel_id_counter[0]
+            channel_id_counter[0] += 1
+            ch.open_response_body = b"\x00" * 20
+            ch.response_queue = asyncio.Queue()
+            return ch
+
+        device_rtpc = MagicMock()
+        device_rtpc.open_event = asyncio.Event()
+        device_rtpc.open_event.set()
+        device_rtpc.server_channel_id = 0xBBBB
+
+        mock_client = MagicMock()
+        mock_client.host = "192.168.1.1"
+        mock_client.port = 64100
+        mock_client.get_channel = MagicMock(return_value=ctpp_ch)
+        mock_client.open_channel = mock_open_channel
+        mock_client.send_binary = AsyncMock()
+        mock_client.register_placeholder_channel = MagicMock(return_value=device_rtpc)
+
+        mock_receiver = MagicMock()
+        mock_receiver.running = False
+        mock_receiver.start_control = AsyncMock()
+        mock_receiver.start_media = AsyncMock()
+        mock_receiver.stop = AsyncMock()
+        mock_receiver.wait_for_first_video = AsyncMock()
+        mock_receiver.udp_media_packet_count = 0
+        mock_receiver.tcp_media_packet_count = 0
+
+        mock_rtsp = MagicMock()
+        mock_rtsp.start = AsyncMock()
+        mock_rtsp.stop = AsyncMock()
+        mock_rtsp.nal_queue = asyncio.Queue()
+        mock_rtsp.audio_queue = asyncio.Queue()
+        mock_rtsp.rtp_queue = asyncio.Queue()
+
+        return config, mock_client, mock_receiver, mock_rtsp, ctpp_ch
+
+    def _make_session(self, config, mock_client, *, rtsp_server=None) -> "VideoCallSession":
+        session = VideoCallSession.__new__(VideoCallSession)
+        session._client = mock_client
+        session._config = config
+        session._auto_timeout = False
+        session._external_rtsp = rtsp_server is not None
+        session._rtsp_server = rtsp_server
+        session._active = False
+        session._device_rtpc_req_id = 0
+        session._owns_ctpp = False
+        session._timeout_task = None
+        session._tcp_task = None
+        session._ctpp_task = None
+        session._rtp_receiver = None
+        session._call_counter = 0
+        session._ctpp_lock = asyncio.Lock()
+        session._on_call_end = None
+        session._on_timeout = None
+        return session
+
+    @pytest.mark.asyncio
+    async def test_start_inbound_returns_receiver_and_sets_active(self):
+        """start_inbound returns the receiver and sets session.active=True."""
+        config, mock_client, mock_receiver, mock_rtsp, ctpp_ch = self._make_mocks()
+        session = self._make_session(config, mock_client)
+
+        # Unblock the response_queue drains immediately (empty queues = TimeoutError handled)
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+        ):
+            result = await session.start_inbound("SB100001", 0x12345678)
+
+        assert result is mock_receiver
+        assert session.active is True
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_inbound_stores_device_rtpc_req_id(self):
+        """start_inbound stores the device RTPC server channel ID for answer_inbound."""
+        config, mock_client, mock_receiver, mock_rtsp, ctpp_ch = self._make_mocks()
+        session = self._make_session(config, mock_client)
+
+        with (
+            patch("custom_components.comelit_man.video_call.RtpReceiver", return_value=mock_receiver),
+            patch("custom_components.comelit_man.video_call.LocalRtspServer", return_value=mock_rtsp),
+        ):
+            await session.start_inbound("SB100001", 0x12345678)
+
+        assert session._device_rtpc_req_id == 0xBBBB
+        await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_inbound_no_ctpp_raises_video_call_error(self):
+        """start_inbound raises VideoCallError when no CTPP channel is open."""
+        from custom_components.comelit_man.exceptions import VideoCallError
+
+        config, mock_client, mock_receiver, mock_rtsp, ctpp_ch = self._make_mocks()
+        mock_client.get_channel = MagicMock(return_value=None)
+        session = self._make_session(config, mock_client)
+
+        with pytest.raises(VideoCallError):
+            await session.start_inbound("SB100001", 0x12345678)
+
+
+class TestAnswerInbound:
+    """Tests for VideoCallSession.answer_inbound()."""
+
+    def _make_session_with_receiver(self, device_rtpc_req_id: int = 0x1234):
+        session = VideoCallSession.__new__(VideoCallSession)
+        session._active = True
+        session._device_rtpc_req_id = device_rtpc_req_id
+        mock_receiver = MagicMock()
+        mock_receiver.start_audio_sender = MagicMock()
+        session._rtp_receiver = mock_receiver
+        return session, mock_receiver
+
+    def test_answer_inbound_calls_start_audio_sender(self):
+        """answer_inbound starts the audio sender with the device RTPC req_id."""
+        session, mock_receiver = self._make_session_with_receiver(device_rtpc_req_id=0x1234)
+        session.answer_inbound()
+        mock_receiver.start_audio_sender.assert_called_once_with(0x1234)
+
+    def test_answer_inbound_no_op_when_no_receiver(self):
+        """answer_inbound is a no-op (does not raise) when receiver is None."""
+        session = VideoCallSession.__new__(VideoCallSession)
+        session._rtp_receiver = None
+        session._device_rtpc_req_id = 0x1234
+        session.answer_inbound()  # must not raise
+
+    def test_answer_inbound_no_op_when_req_id_zero(self):
+        """answer_inbound is a no-op when device_rtpc_req_id is 0 (RTPC never opened)."""
+        session, mock_receiver = self._make_session_with_receiver(device_rtpc_req_id=0)
+        session.answer_inbound()
+        mock_receiver.start_audio_sender.assert_not_called()

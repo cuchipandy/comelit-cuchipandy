@@ -15,6 +15,7 @@ from custom_components.comelit_man.protocol import (
     encode_answer_config_ack,
     encode_answer_peer,
     encode_answer_video_reconfig,
+    encode_call_accepted,
     encode_channel_close,
     encode_channel_open,
     encode_ctpp_init,
@@ -315,3 +316,62 @@ class TestAnswerSequencePayloads:
         ts = 0xCAFEBABE
         msg = encode_hangup("SB0000061", "SB100001", ts)
         assert struct.pack("<I", ts) in msg
+
+
+class TestEncodeAnswerPeerInbound:
+    """Tests for encode_answer_peer(inbound=True) — PCAP2-verified 48B format."""
+
+    def test_inbound_length_is_48_bytes(self):
+        """Inbound PEER message must be exactly 48 bytes (PCAP2-verified)."""
+        msg = encode_answer_peer("SB0000061", "SB000006", 0x12345678, inbound=True)
+        assert len(msg) == 48
+
+    def test_inbound_extra_padding_before_separator(self):
+        """Inbound PEER has 0x0000 padding immediately before 0xFFFFFFFF separator."""
+        msg = encode_answer_peer("SB0000061", "SB000006", 0x12345678, inbound=True)
+        assert b"\x00\x00\xff\xff\xff\xff" in msg
+
+    def test_inbound_caller_after_separator(self):
+        """Inbound PEER includes caller address after the 0xFFFFFFFF separator."""
+        caller = "SB0000061"
+        msg = encode_answer_peer(caller, "SB000006", 0x12345678, inbound=True)
+        sep_idx = msg.index(b"\xff\xff\xff\xff")
+        assert caller.encode("ascii") in msg[sep_idx:]
+
+    def test_inbound_callee_is_base_addr(self):
+        """Inbound PEER callee is the base apartment address (not entrance_addr)."""
+        our_base = "SB000006"
+        msg = encode_answer_peer("SB0000061", our_base, 0x12345678, inbound=True)
+        assert our_base.encode("ascii") in msg
+
+    def test_outbound_length_differs_from_inbound(self):
+        """Outbound PEER (no inbound flag) does NOT have the extra 0x0000 padding."""
+        outbound = encode_answer_peer("SB0000061", "SB100001", 0x12345678, inbound=False)
+        inbound = encode_answer_peer("SB0000061", "SB000006", 0x12345678, inbound=True)
+        assert len(inbound) == len(outbound) + 2
+
+
+class TestEncodeCallAccepted:
+    """Tests for encode_call_accepted — app→device on inbound (PCAP2-verified)."""
+
+    def test_prefix_is_0x1840(self):
+        """encode_call_accepted uses 0x1840 prefix."""
+        msg = encode_call_accepted("SB0000061", "SB000006", 0x12345678)
+        assert struct.unpack_from("<H", msg, 0)[0] == 0x1840
+
+    def test_action_is_0x0002(self):
+        """encode_call_accepted uses ACTION_CALL_ACCEPTED (0x0002)."""
+        msg = encode_call_accepted("SB0000061", "SB000006", 0x12345678)
+        action = struct.unpack_from(">H", msg, 6)[0]
+        assert action == 0x0002
+
+    def test_exactly_four_ff_bytes(self):
+        """Separator is exactly 4 FF bytes (b'\xff\xff\xff\xff'), no extra FF bytes."""
+        msg = encode_call_accepted("SB0000061", "SB000006", 0x12345678)
+        ff_count = msg.count(b"\xff")
+        assert ff_count == 4
+
+    def test_contains_caller(self):
+        """encode_call_accepted embeds caller address."""
+        msg = encode_call_accepted("SB0000061", "SB000006", 0x12345678)
+        assert b"SB0000061\x00" in msg

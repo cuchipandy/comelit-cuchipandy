@@ -168,6 +168,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                     self._config,
                     self._on_push_event,
                     init_ts=init_ts,
+                    on_inbound_ring=self._on_inbound_ring,
                 )
                 await vip.start()
                 self._vip_listener = vip
@@ -244,6 +245,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                     self._config,
                     self._on_push_event,
                     init_ts=init_ts,
+                    on_inbound_ring=self._on_inbound_ring,
                 )
                 await vip.start()
                 self._vip_listener = vip
@@ -462,6 +464,85 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
         except Exception:
             _LOGGER.warning("Auto-restart failed", exc_info=True)
 
+    def _on_inbound_ring(self, entrance_addr: str, ring_ts: int) -> None:
+        """Called by VIP listener when device initiates a ring (PREFIX_CALL_INIT).
+
+        Schedules async_start_inbound_video as a background task so the
+        full 20-step answer sequence runs without blocking the VIP listener loop.
+        """
+        _LOGGER.debug("Inbound ring: entrance=%s ring_ts=0x%08X", entrance_addr, ring_ts)
+        self.config_entry.async_create_background_task(  # type: ignore[union-attr]
+            self.hass,
+            self.async_start_inbound_video(entrance_addr, ring_ts),
+            "comelit-inbound-video",
+        )
+
+    async def async_start_inbound_video(self, entrance_addr: str, ring_ts: int) -> None:
+        """Answer a device-initiated ring: run inbound signaling and start video.
+
+        On success, fires doorbell_ring after video is ready so automations
+        see the camera stream already flowing when the event triggers.
+        On failure, fires missed_call and restores the VIP listener.
+        """
+        if not self._config:
+            return
+        if self._video_start_lock.locked():
+            _LOGGER.debug("Inbound: video start already in progress — skipping ring")
+            return
+
+        async with self._video_start_lock:
+            if not self._client:
+                return
+            self._video_stopped_by_user = False
+            await self.async_stop_video()
+
+            if self._vip_listener:
+                with contextlib.suppress(Exception):
+                    await self._vip_listener.stop_task()
+                self._vip_listener = None
+
+            session = VideoCallSession(
+                self._client,
+                self._config,
+                auto_timeout=True,
+                rtsp_server=self._rtsp_server,
+                on_call_end=self._on_video_call_end,
+                on_timeout=self._on_video_call_end,
+            )
+            try:
+                await session.start_inbound(entrance_addr, ring_ts)
+            except Exception:
+                _LOGGER.warning("Inbound call answer failed", exc_info=True)
+                self._on_push_event(
+                    PushEvent(
+                        event_type="missed_call",
+                        apt_address=entrance_addr,
+                        timestamp=time.time(),
+                    )
+                )
+                await self._ensure_vip_listener()
+                return
+
+            self._video_session = session
+            self._video_ready_event.set()
+            if self._rtsp_server:
+                self._rtsp_server.mark_ready()
+            await self._notify_video_state_change()
+            # Fire doorbell_ring AFTER video is flowing so automations see the stream
+            self._on_push_event(
+                PushEvent(
+                    event_type="doorbell_ring",
+                    apt_address=entrance_addr,
+                    timestamp=time.time(),
+                )
+            )
+            _LOGGER.info("Inbound video ready, doorbell_ring fired (entrance=%s)", entrance_addr)
+
+    async def async_answer_inbound(self) -> None:
+        """Start two-way audio for an active inbound call."""
+        if self._video_session and self._video_session.active:
+            self._video_session.answer_inbound()
+
     @property
     def video_stopped_by_user(self) -> bool:
         """Return True if the user explicitly stopped video (not CALL_END)."""
@@ -534,6 +615,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 self._config,
                 self._on_push_event,
                 init_ts=self._ctpp_init_ts,
+                on_inbound_ring=self._on_inbound_ring,
             )
             await vip.start()
             self._vip_listener = vip

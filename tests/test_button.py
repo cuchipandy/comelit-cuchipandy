@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.comelit_man.button import (
+    ComelitAnswerDoorbellButton,
     ComelitDoorButton,
     ComelitStartVideoButton,
     ComelitStopVideoButton,
@@ -250,11 +251,12 @@ class TestButtonSetupEntry:
         entry.entry_id = "entry_abc"
         added: list = []
         await async_setup_entry(MagicMock(), entry, lambda ents: added.extend(ents))
-        # 1 door button + start video + stop video = 3
-        assert len(added) == 3
+        # 1 door button + start video + stop video + answer doorbell = 4
+        assert len(added) == 4
         assert isinstance(added[0], ComelitDoorButton)
         assert isinstance(added[1], ComelitStartVideoButton)
         assert isinstance(added[2], ComelitStopVideoButton)
+        assert isinstance(added[3], ComelitAnswerDoorbellButton)
 
     @pytest.mark.asyncio
     async def test_setup_entry_no_config_adds_nothing(self):
