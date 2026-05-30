@@ -6,21 +6,17 @@ client/protocol changes, using a mocked TCP connection.
 
 import asyncio
 import struct
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from custom_components.comelit_man.channels import Channel, ChannelType
+from custom_components.comelit_man.channels import ChannelType
 from custom_components.comelit_man.client import IconaBridgeClient
-from custom_components.comelit_man.models import DeviceConfig
 from custom_components.comelit_man.protocol import (
-    HEADER_SIZE,
     MessageType,
     encode_call_response_ack,
     encode_channel_open_response,
     encode_header,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers for building mock protocol packets

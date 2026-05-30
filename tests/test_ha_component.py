@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from custom_components.comelit_man.models import Camera, DeviceConfig, Door, PushEvent
 
 # Import after conftest has set up mocked HA modules
 from custom_components.comelit_man.coordinator import (
@@ -18,6 +15,7 @@ from custom_components.comelit_man.exceptions import (
     AuthenticationError,
     ConnectionComelitError,
 )
+from custom_components.comelit_man.models import Camera, DeviceConfig, Door, PushEvent
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -716,8 +714,8 @@ class TestSetupEntryErrors:
     @pytest.mark.asyncio
     async def test_setup_entry_auth_error_raises_config_entry_auth_failed(self):
         from custom_components.comelit_man import async_setup_entry
-        from tests.conftest import _ConfigEntryAuthFailed
         from custom_components.comelit_man.exceptions import AuthenticationError
+        from tests.conftest import _ConfigEntryAuthFailed
 
         hass = _make_hass()
         entry = MagicMock()
@@ -871,8 +869,9 @@ class TestInitResource:
 
     @pytest.mark.asyncio
     async def test_creates_item_when_no_existing_resources(self):
-        from custom_components.comelit_man import _init_resource
         from homeassistant.components.lovelace.resources import ResourceStorageCollection
+
+        from custom_components.comelit_man import _init_resource
 
         hass, resources = self._make_hass_with_lovelace(items=[])
         # Make the resources instance look like a ResourceStorageCollection so the
@@ -934,8 +933,9 @@ class TestInitResource:
 
     @pytest.mark.asyncio
     async def test_updates_item_when_version_changed(self):
-        from custom_components.comelit_man import _init_resource
         from homeassistant.components.lovelace.resources import ResourceStorageCollection
+
+        from custom_components.comelit_man import _init_resource
 
         items = [{"id": "99", "url": "/comelit/card.js?v=0.9", "res_type": "module"}]
         hass, resources = self._make_hass_with_lovelace(items=items)

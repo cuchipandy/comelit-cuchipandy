@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import struct
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -34,8 +34,6 @@ class TestCtppInitSequence:
         channel = MagicMock()
 
         with pytest.MonkeyPatch().context() as mp:
-            from custom_components.comelit_man import ctpp as ctpp_mod
-
             sent = []
             client.send_binary = AsyncMock(side_effect=lambda ch, data: sent.append(data))
             await ctpp_init_sequence(client, channel, "SB000006", 1, "SB0000061", 0x12345678)

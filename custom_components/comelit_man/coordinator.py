@@ -9,6 +9,8 @@ import time
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+import aiohttp
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -23,7 +25,7 @@ from .channels import ChannelType
 from .client import IconaBridgeClient
 from .config_reader import get_device_config
 from .const import CONF_ENABLE_NOTIFICATIONS, DOMAIN
-from .ctpp import ctpp_init_sequence
+from .ctpp import _CTR_INCR_BOTH, ctpp_init_sequence
 from .door import open_door
 from .exceptions import AuthenticationError, DoorOpenError
 from .models import DeviceConfig, Door, PushEvent
@@ -168,6 +170,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                     self._config,
                     self._on_push_event,
                     init_ts=init_ts,
+                    on_inbound_ring=self._on_inbound_ring,
                 )
                 await vip.start()
                 self._vip_listener = vip
@@ -184,6 +187,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             self._rtsp_url = await rtsp.start()
             self._rtsp_server = rtsp
             _LOGGER.info("Persistent RTSP server started: %s", self._rtsp_url)
+            await self._register_go2rtc_stream()
 
         self.async_set_updated_data(self._config)
         _LOGGER.info(
@@ -244,6 +248,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                     self._config,
                     self._on_push_event,
                     init_ts=init_ts,
+                    on_inbound_ring=self._on_inbound_ring,
                 )
                 await vip.start()
                 self._vip_listener = vip
@@ -264,6 +269,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 await self._vip_listener.stop()
             self._vip_listener = None
         if self._rtsp_server:
+            await self._deregister_go2rtc_stream()
             with contextlib.suppress(Exception):
                 await self._rtsp_server.stop()
             self._rtsp_server = None
@@ -425,6 +431,8 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             # user-visible latency stays at ~3 s.
             await session.start()
             _LOGGER.info("Video session ready in %.1fs", time.monotonic() - t0)
+            if self._rtsp_server and session.rtp_receiver:
+                session.rtp_receiver.attach_backchannel_queue(self._rtsp_server.backchannel_queue)
             self._video_session = session
             self._video_ready_event.set()
             # Unblock PLAY handlers that have been waiting inside the RTSP
@@ -461,6 +469,122 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             _LOGGER.debug("Auto-restart skipped: %s", err)
         except Exception:
             _LOGGER.warning("Auto-restart failed", exc_info=True)
+
+    def _on_inbound_ring(self, entrance_addr: str, ring_ts: int) -> None:
+        """Called by VIP listener when device initiates a ring (PREFIX_CALL_INIT).
+
+        Schedules async_start_inbound_video as a background task so the
+        full 20-step answer sequence runs without blocking the VIP listener loop.
+        """
+        _LOGGER.debug("Inbound ring: entrance=%s ring_ts=0x%08X", entrance_addr, ring_ts)
+        self.config_entry.async_create_background_task(  # type: ignore[union-attr]
+            self.hass,
+            self.async_start_inbound_video(entrance_addr, ring_ts),
+            "comelit-inbound-video",
+        )
+
+    async def async_start_inbound_video(self, entrance_addr: str, ring_ts: int) -> None:
+        """Answer a device-initiated ring: run inbound signaling and start video.
+
+        On success, fires doorbell_ring after video is ready so automations
+        see the camera stream already flowing when the event triggers.
+        On failure, fires missed_call and restores the VIP listener.
+        """
+        if not self._config:
+            return
+        if self._video_start_lock.locked():
+            _LOGGER.debug("Inbound: video start already in progress — skipping ring")
+            return
+
+        async with self._video_start_lock:
+            if not self._client:
+                return
+            self._video_stopped_by_user = False
+            await self.async_stop_video()
+
+            if self._vip_listener:
+                with contextlib.suppress(Exception):
+                    await self._vip_listener.stop_task()
+                self._vip_listener = None
+
+            session = VideoCallSession(
+                self._client,
+                self._config,
+                auto_timeout=True,
+                rtsp_server=self._rtsp_server,
+                on_call_end=self._on_video_call_end,
+                on_timeout=self._on_video_call_end,
+            )
+            try:
+                renewal_ack_ts = (self._ctpp_init_ts + _CTR_INCR_BOTH) & 0xFFFFFFFF
+                await session.start_inbound(entrance_addr, ring_ts, renewal_ack_ts=renewal_ack_ts)
+            except Exception:
+                _LOGGER.warning("Inbound call answer failed", exc_info=True)
+                self._on_push_event(
+                    PushEvent(
+                        event_type="missed_call",
+                        apt_address=entrance_addr,
+                        timestamp=time.time(),
+                    )
+                )
+                await self._ensure_vip_listener()
+                return
+
+            if self._rtsp_server and session.rtp_receiver:
+                session.rtp_receiver.attach_backchannel_queue(self._rtsp_server.backchannel_queue)
+            self._video_session = session
+            self._video_ready_event.set()
+            if self._rtsp_server:
+                self._rtsp_server.mark_ready()
+            await self._notify_video_state_change()
+            # Fire doorbell_ring AFTER video is flowing so automations see the stream
+            self._on_push_event(
+                PushEvent(
+                    event_type="doorbell_ring",
+                    apt_address=entrance_addr,
+                    timestamp=time.time(),
+                )
+            )
+            _LOGGER.info("Inbound video ready, doorbell_ring fired (entrance=%s)", entrance_addr)
+
+    async def async_answer_inbound(self) -> None:
+        """Start two-way audio for an active inbound call."""
+        if self._video_session and self._video_session.active:
+            self._video_session.answer_inbound()
+
+    async def _register_go2rtc_stream(self) -> None:
+        """Register our RTSP stream with go2rtc, enabling backchannel support.
+
+        go2rtc must be running (bundled in HA OS/Container/Supervised).
+        Failures are logged at debug level and do not block setup — the
+        integration still works without go2rtc (RTSP/HLS only, no WebRTC).
+        """
+        if not self._rtsp_url:
+            return
+        name = f"comelit_man_{self.config_entry.entry_id}"  # type: ignore[union-attr]
+        src = f"{self._rtsp_url}#backchannel=1"
+        try:
+            async with aiohttp.ClientSession() as session:
+                await session.put(
+                    "http://127.0.0.1:1984/api/streams",
+                    params={"name": name, "src": src},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+            _LOGGER.debug("Registered go2rtc stream: %s -> %s", name, src)
+        except Exception:
+            _LOGGER.debug("go2rtc unavailable — backchannel inactive (RTSP/HLS still works)")
+
+    async def _deregister_go2rtc_stream(self) -> None:
+        """Remove our stream registration from go2rtc on shutdown."""
+        name = f"comelit_man_{self.config_entry.entry_id}"  # type: ignore[union-attr]
+        with contextlib.suppress(Exception):
+            async with aiohttp.ClientSession() as session:
+                await session.delete(
+                    "http://127.0.0.1:1984/api/streams",
+                    params={"name": name},
+                    timeout=aiohttp.ClientTimeout(total=5),
+                )
+            _LOGGER.debug("Deregistered go2rtc stream: %s", name)
 
     @property
     def video_stopped_by_user(self) -> bool:
@@ -534,6 +658,7 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
                 self._config,
                 self._on_push_event,
                 init_ts=self._ctpp_init_ts,
+                on_inbound_ring=self._on_inbound_ring,
             )
             await vip.start()
             self._vip_listener = vip

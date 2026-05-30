@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import struct
 import time
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,13 +22,11 @@ from custom_components.comelit_man.vip_listener import (
     MIN_MSG_SIZE,
     PREFIX_ACK,
     PREFIX_CALL_INIT,
-    PREFIX_CONFIRM,
     PREFIX_VIDEO_EVENT,
     PREFIX_VIP_EVENT,
     VipEventListener,
     parse_ctpp_message,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,12 +63,13 @@ def _make_listener(
     apt_address: str = "SB000006",
     apt_subaddress: int = 1,
     init_ts: int = 0x12000000,
+    on_inbound_ring=None,
 ) -> VipEventListener:
     client = MagicMock()
     client.send_binary = AsyncMock()
     config = _make_config(apt_address, apt_subaddress)
     cb = callback or MagicMock()
-    listener = VipEventListener(client, config, cb, init_ts=init_ts)
+    listener = VipEventListener(client, config, cb, init_ts=init_ts, on_inbound_ring=on_inbound_ring)
     # Attach a fake open channel so send_binary works
     listener._channel = MagicMock()
     listener._channel.response_queue = asyncio.Queue()
@@ -428,6 +427,44 @@ class TestProcessMessage:
         # Must not raise
         await listener._process_message(data)
 
+    @pytest.mark.asyncio
+    async def test_call_init_no_ack_when_inbound_ring_callback_set(self):
+        """With on_inbound_ring set, PREFIX_CALL_INIT must NOT send any ACK.
+
+        The inbound answer sequence sends its own correctly-timed fresh_ts ACK
+        (step 1). Sending the wrong ACK here races the answer sequence.
+        """
+        ring_cb = MagicMock()
+        listener = _make_listener(on_inbound_ring=ring_cb)
+
+        data = _make_ctpp_msg(PREFIX_CALL_INIT, 0xABCD1234, 0, flags=0, addresses=["SB100001"])
+        await listener._process_message(data)
+
+        listener._client.send_binary.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_call_init_calls_inbound_ring_callback_with_entrance_and_ts(self):
+        """With on_inbound_ring set, it is called with (entrance_addr, ring_ts)."""
+        ring_cb = MagicMock()
+        listener = _make_listener(on_inbound_ring=ring_cb)
+
+        ring_ts = 0xABCD1234
+        data = _make_ctpp_msg(PREFIX_CALL_INIT, ring_ts, 0, flags=0, addresses=["SB100001"])
+        await listener._process_message(data)
+
+        ring_cb.assert_called_once_with("SB100001", ring_ts)
+
+    @pytest.mark.asyncio
+    async def test_call_init_sends_ack_when_no_inbound_callback(self):
+        """Without on_inbound_ring, PREFIX_CALL_INIT sends the event ACK (legacy path)."""
+        cb = MagicMock()
+        listener = _make_listener(cb)  # on_inbound_ring=None by default
+
+        data = _make_ctpp_msg(PREFIX_CALL_INIT, 0xABCD, 0, flags=0, addresses=["SB100001"])
+        await listener._process_message(data)
+
+        listener._client.send_binary.assert_awaited_once()
+
 
 # ---------------------------------------------------------------------------
 # VipEventListener.stop
@@ -604,7 +641,6 @@ class TestProcessMessageDebugRaw:
     @pytest.mark.asyncio
     async def test_debug_raw_logged_when_debug_enabled(self):
         """_LOGGER.debug('VIP raw: ...') fires when DEBUG logging is enabled (line 247)."""
-        import logging
         from custom_components.comelit_man import vip_listener as vip_module
 
         cb = MagicMock()

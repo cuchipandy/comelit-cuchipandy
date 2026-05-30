@@ -147,9 +147,8 @@ class TestExtractToken:
 
         session = _make_session(login_resp, backup_resp, list_resp, dl_resp)
 
-        with _patch_session(session):
-            with patch("asyncio.sleep", AsyncMock()):
-                token = await extract_token("192.168.1.1", "comelit", 8080, MagicMock())
+        with _patch_session(session), patch("asyncio.sleep", AsyncMock()):
+            token = await extract_token("192.168.1.1", "comelit", 8080, MagicMock())
 
         assert token == "abcdef1234567890abcdef1234567890"
 
@@ -159,9 +158,8 @@ class TestExtractToken:
         login_resp = _make_mock_response(403, "Forbidden")
         session = _make_session(login_resp)
 
-        with _patch_session(session):
-            with pytest.raises(TokenExtractionError, match="Login failed with status 403"):
-                await extract_token("192.168.1.1", hass=MagicMock())
+        with _patch_session(session), pytest.raises(TokenExtractionError, match="Login failed with status 403"):
+            await extract_token("192.168.1.1", hass=MagicMock())
 
     @pytest.mark.asyncio
     async def test_extract_token_login_fails_wrong_content(self):
@@ -169,9 +167,8 @@ class TestExtractToken:
         login_resp = _make_mock_response(200, "Invalid password")
         session = _make_session(login_resp)
 
-        with _patch_session(session):
-            with pytest.raises(TokenExtractionError, match="Login failed"):
-                await extract_token("192.168.1.1", hass=MagicMock())
+        with _patch_session(session), pytest.raises(TokenExtractionError, match="Login failed"):
+            await extract_token("192.168.1.1", hass=MagicMock())
 
     @pytest.mark.asyncio
     async def test_extract_token_backup_creation_fails(self):
@@ -180,10 +177,9 @@ class TestExtractToken:
         backup_resp = _make_mock_response(200, "something unexpected")
         session = _make_session(login_resp, backup_resp)
 
-        with _patch_session(session):
-            with patch("asyncio.sleep", AsyncMock()):
-                with pytest.raises(TokenExtractionError, match="Backup creation failed"):
-                    await extract_token("192.168.1.1", hass=MagicMock())
+        with _patch_session(session), patch("asyncio.sleep", AsyncMock()):
+            with pytest.raises(TokenExtractionError, match="Backup creation failed"):
+                await extract_token("192.168.1.1", hass=MagicMock())
 
     @pytest.mark.asyncio
     async def test_extract_token_no_backup_files(self):
@@ -193,10 +189,9 @@ class TestExtractToken:
         list_resp = _make_mock_response(200, "<html>No backups here</html>")
         session = _make_session(login_resp, backup_resp, list_resp)
 
-        with _patch_session(session):
-            with patch("asyncio.sleep", AsyncMock()):
-                with pytest.raises(TokenExtractionError, match="No backup files found"):
-                    await extract_token("192.168.1.1", hass=MagicMock())
+        with _patch_session(session), patch("asyncio.sleep", AsyncMock()):
+            with pytest.raises(TokenExtractionError, match="No backup files found"):
+                await extract_token("192.168.1.1", hass=MagicMock())
 
     @pytest.mark.asyncio
     async def test_extract_token_download_fails(self):
@@ -207,10 +202,9 @@ class TestExtractToken:
         dl_resp = _make_mock_response(404)
         session = _make_session(login_resp, backup_resp, list_resp, dl_resp)
 
-        with _patch_session(session):
-            with patch("asyncio.sleep", AsyncMock()):
-                with pytest.raises(TokenExtractionError, match="Backup download failed"):
-                    await extract_token("192.168.1.1", hass=MagicMock())
+        with _patch_session(session), patch("asyncio.sleep", AsyncMock()):
+            with pytest.raises(TokenExtractionError, match="Backup download failed"):
+                await extract_token("192.168.1.1", hass=MagicMock())
 
     @pytest.mark.asyncio
     async def test_extract_token_backup_page_fails(self):
@@ -220,7 +214,6 @@ class TestExtractToken:
         list_resp = _make_mock_response(500, "Server Error")
         session = _make_session(login_resp, backup_resp, list_resp)
 
-        with _patch_session(session):
-            with patch("asyncio.sleep", AsyncMock()):
-                with pytest.raises(TokenExtractionError, match="Backup page returned status 500"):
-                    await extract_token("192.168.1.1", hass=MagicMock())
+        with _patch_session(session), patch("asyncio.sleep", AsyncMock()):
+            with pytest.raises(TokenExtractionError, match="Backup page returned status 500"):
+                await extract_token("192.168.1.1", hass=MagicMock())

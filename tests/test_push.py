@@ -6,13 +6,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from custom_components.comelit_man.models import DeviceConfig, PushEvent
 from custom_components.comelit_man.push import (
     _parse_push_event,
     register_push,
     send_push_keepalive,
 )
-from custom_components.comelit_man.models import DeviceConfig, PushEvent
-
 
 # ---------------------------------------------------------------------------
 # _parse_push_event

@@ -6,7 +6,9 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+import aiohttp
 from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera.webrtc import WebRTCAnswer, WebRTCError, WebRTCSendMessage
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -206,6 +208,28 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
             await stream.stop()
         except Exception:
             _LOGGER.debug("Error stopping HA stream", exc_info=True)
+
+    async def async_handle_async_webrtc_offer(
+        self,
+        offer_sdp: str,
+        session_id: str,
+        send_message: WebRTCSendMessage,
+    ) -> None:
+        """Forward WebRTC offer to go2rtc using the pre-registered backchannel stream."""
+        name = f"comelit_man_{self._entry_id}"
+        try:
+            async with aiohttp.ClientSession() as http:
+                resp = await http.post(
+                    f"http://127.0.0.1:1984/api/webrtc?src={name}",
+                    data=offer_sdp,
+                    headers={"Content-Type": "application/sdp"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                resp.raise_for_status()
+                answer_sdp = await resp.text()
+            send_message(WebRTCAnswer(answer=answer_sdp))
+        except Exception as err:
+            send_message(WebRTCError(code="go2rtc_error", message=str(err)))
 
     def _on_push(self, event: PushEvent) -> None:
         """Handle push events — no auto-start; user controls video via button or automation."""

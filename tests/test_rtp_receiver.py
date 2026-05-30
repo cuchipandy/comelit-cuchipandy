@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import struct
 import sys
 from types import ModuleType
@@ -202,7 +201,6 @@ class TestDecodeLoopRobustness:
     @pytest.mark.asyncio
     async def test_decode_loop_produces_frames(self):
         """Successful frame decode updates _latest_frame — lines 499-504, 538-542."""
-        import io as _io
         import logging
 
         FAKE_JPEG = b"\xff\xd8\xff\xe0fake_jpeg\xff\xd9"
@@ -1138,3 +1136,59 @@ class TestIdrTracking:
         # Must appear in DEBUG records, not only INFO+
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         assert any("IDR" in r.message for r in debug_records)
+
+
+# ---------------------------------------------------------------------------
+# Backchannel audio: attach_backchannel_queue + _audio_send_loop
+# ---------------------------------------------------------------------------
+
+
+class TestBackchannelAudio:
+    def test_attach_backchannel_queue_sets_field(self):
+        """attach_backchannel_queue stores the queue reference."""
+        receiver = RtpReceiver("127.0.0.1")
+        q = asyncio.Queue()
+        receiver.attach_backchannel_queue(q)
+        assert receiver._backchannel_queue is q
+
+    def test_initial_state_has_no_backchannel_queue(self):
+        """Backchannel queue starts as None (not attached)."""
+        receiver = RtpReceiver("127.0.0.1")
+        assert receiver._backchannel_queue is None
+
+    @pytest.mark.asyncio
+    async def test_audio_send_loop_prefers_backchannel_over_silence(self):
+        """When backchannel queue has a frame, _audio_send_loop sends it instead of silence."""
+        receiver = RtpReceiver("127.0.0.1")
+        receiver._running = True
+
+        real_audio = bytes([0xAB] * 160)
+        q: asyncio.Queue[bytes] = asyncio.Queue()
+        await q.put(real_audio)
+        receiver.attach_backchannel_queue(q)
+
+        sent: list[bytes] = []
+        transport = MagicMock()
+        transport.sendto = lambda data, **kw: sent.append(data)
+        receiver._transport = transport
+
+        stop_after = 2
+
+        async def fake_sleep(_t: float) -> None:
+            nonlocal stop_after
+            stop_after -= 1
+            if stop_after <= 0:
+                receiver._running = False
+
+        with patch("custom_components.comelit_man.rtp_receiver.asyncio.sleep", side_effect=fake_sleep):
+            await receiver._audio_send_loop(0x1234)
+
+        # First send should contain real_audio, not silence
+        assert len(sent) >= 1
+        first_payload = sent[0][20:]  # skip 8-byte ICONA header + 12-byte RTP header
+        assert first_payload == real_audio
+
+        # Second send (after queue exhausted) should be silence
+        silence = bytes([0xD5] * 160)
+        second_payload = sent[1][20:] if len(sent) > 1 else silence
+        assert second_payload == silence

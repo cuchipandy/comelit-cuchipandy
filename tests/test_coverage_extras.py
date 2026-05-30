@@ -170,13 +170,15 @@ class TestExtractTokenNoHass:
         mock_cm.__aenter__ = AsyncMock(return_value=mock_session)
         mock_cm.__aexit__ = AsyncMock(return_value=False)
 
-        with patch("custom_components.comelit_man.token.aiohttp.ClientSession", return_value=mock_cm):
-            with patch(
+        with (
+            patch("custom_components.comelit_man.token.aiohttp.ClientSession", return_value=mock_cm),
+            patch(
                 "custom_components.comelit_man.token._do_extract",
                 new_callable=AsyncMock,
                 return_value="deadbeef" * 4,
-            ) as mock_do:
-                result = await extract_token("192.168.1.1", "comelit", 8080, hass=None)
+            ) as mock_do,
+        ):
+            result = await extract_token("192.168.1.1", "comelit", 8080, hass=None)
 
         assert result == "deadbeef" * 4
         mock_do.assert_awaited_once()
@@ -197,22 +199,26 @@ class TestConnectErrors:
     @pytest.mark.asyncio
     async def test_os_error_raises_connection_error(self):
         client = IconaBridgeClient("127.0.0.1", 64100)
-        with patch(
-            "custom_components.comelit_man.client.asyncio.open_connection",
-            side_effect=OSError("connection refused"),
+        with (
+            patch(
+                "custom_components.comelit_man.client.asyncio.open_connection",
+                side_effect=OSError("connection refused"),
+            ),
+            pytest.raises(ConnectionComelitError),
         ):
-            with pytest.raises(ConnectionComelitError):
-                await client.connect()
+            await client.connect()
 
     @pytest.mark.asyncio
     async def test_timeout_raises_connection_error(self):
         client = IconaBridgeClient("127.0.0.1", 64100)
-        with patch(
-            "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=_raises_timeout,
+        with (
+            patch(
+                "custom_components.comelit_man.client.asyncio.wait_for",
+                side_effect=_raises_timeout,
+            ),
+            pytest.raises(ConnectionComelitError),
         ):
-            with pytest.raises(ConnectionComelitError):
-                await client.connect()
+            await client.connect()
 
 
 class TestSendNotConnected:
@@ -293,9 +299,8 @@ class TestReceiveLoopErrors:
         async def raise_cancelled(*_a, **_kw):
             raise asyncio.CancelledError
 
-        with patch.object(client, "_read_packet", raise_cancelled):
-            with pytest.raises(asyncio.CancelledError):
-                await client._receive_loop()
+        with patch.object(client, "_read_packet", raise_cancelled), pytest.raises(asyncio.CancelledError):
+            await client._receive_loop()
 
         assert not fired
 
@@ -329,12 +334,14 @@ class TestSendJsonErrors:
         client = _connected_client()
         ch = _open_channel(client)
 
-        with patch(
-            "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=TimeoutError,
+        with (
+            patch(
+                "custom_components.comelit_man.client.asyncio.wait_for",
+                side_effect=TimeoutError,
+            ),
+            pytest.raises(ProtocolError),
         ):
-            with pytest.raises(ProtocolError):
-                await client.send_json(ch, {"cmd": "test"})
+            await client.send_json(ch, {"cmd": "test"})
 
     @pytest.mark.asyncio
     async def test_channel_not_open_raises_protocol_error(self):
@@ -363,12 +370,14 @@ class TestOpenChannelTimeout:
     async def test_timeout_raises_protocol_error(self):
         client = _connected_client()
 
-        with patch(
-            "custom_components.comelit_man.client.asyncio.wait_for",
-            side_effect=_raises_timeout,
+        with (
+            patch(
+                "custom_components.comelit_man.client.asyncio.wait_for",
+                side_effect=_raises_timeout,
+            ),
+            pytest.raises(ProtocolError, match="Timeout"),
         ):
-            with pytest.raises(ProtocolError, match="Timeout"):
-                await client.open_channel("CH", ChannelType.UAUT)
+            await client.open_channel("CH", ChannelType.UAUT)
 
 
 class TestCloseChannel:
@@ -517,13 +526,13 @@ class TestSendJsonBinaryResponse:
 
 class TestUdpProtocol:
     def _make(self):
-        from custom_components.comelit_man.rtp_receiver import _UdpProtocol, RtpReceiver
+        from custom_components.comelit_man.rtp_receiver import RtpReceiver, _UdpProtocol
 
         receiver = MagicMock(spec=RtpReceiver)
         return _UdpProtocol(receiver), receiver
 
     def test_init_stores_receiver(self):
-        from custom_components.comelit_man.rtp_receiver import _UdpProtocol, RtpReceiver
+        from custom_components.comelit_man.rtp_receiver import RtpReceiver, _UdpProtocol
 
         receiver = MagicMock(spec=RtpReceiver)
         proto = _UdpProtocol(receiver)
@@ -561,8 +570,8 @@ class TestUdpProtocol:
 
 class TestVideoCallProperties:
     def _make_session(self):
-        from custom_components.comelit_man.video_call import VideoCallSession
         from custom_components.comelit_man.models import DeviceConfig
+        from custom_components.comelit_man.video_call import VideoCallSession
 
         client = MagicMock()
         config = MagicMock(spec=DeviceConfig)
@@ -587,8 +596,8 @@ class TestVideoCallProperties:
         assert session.rtsp_server is None
 
     def test_rtsp_server_returned_when_provided(self):
-        from custom_components.comelit_man.video_call import VideoCallSession
         from custom_components.comelit_man.models import DeviceConfig
+        from custom_components.comelit_man.video_call import VideoCallSession
 
         client = MagicMock()
         config = MagicMock(spec=DeviceConfig)

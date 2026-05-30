@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.comelit_man.models import Camera, DeviceConfig, Door, PushEvent
 from custom_components.comelit_man.exceptions import (
     AuthenticationError,
     ComelitError,
@@ -14,7 +13,7 @@ from custom_components.comelit_man.exceptions import (
     TokenExtractionError,
     VideoCallError,
 )
-
+from custom_components.comelit_man.models import Camera, DeviceConfig, Door, PushEvent
 
 # ---------------------------------------------------------------------------
 # Models — dataclass field defaults and construction

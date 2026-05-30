@@ -36,6 +36,7 @@ async def async_setup_entry(
     if config.doors:
         entities.append(ComelitStartVideoButton(coordinator, entry.entry_id))
         entities.append(ComelitStopVideoButton(coordinator, entry.entry_id))
+        entities.append(ComelitAnswerDoorbellButton(coordinator, entry.entry_id))
 
     async_add_entities(entities)
 
@@ -145,3 +146,28 @@ class ComelitStopVideoButton(ComelitEntity, ButtonEntity):
             await self.coordinator.async_stop_video()
         except Exception:
             _LOGGER.exception("Failed to stop intercom video")
+
+
+class ComelitAnswerDoorbellButton(ComelitEntity, ButtonEntity):
+    """Button entity to answer an active inbound doorbell call with two-way audio."""
+
+    _attr_translation_key = "answer_doorbell"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator: ComelitLocalCoordinator,
+        entry_id: str,
+    ) -> None:
+        """Initialize the answer doorbell button entity."""
+        super().__init__(coordinator, entry_id)
+        self._attr_unique_id = f"{entry_id}_answer_doorbell"
+
+    async def async_press(self) -> None:
+        """Start two-way audio for the active inbound call."""
+        _LOGGER.info("Answering doorbell — starting audio")
+        try:
+            await self.coordinator.async_answer_inbound()
+        except Exception:
+            _LOGGER.exception("Failed to answer doorbell")

@@ -110,6 +110,7 @@ class VipEventListener:
         config: DeviceConfig,
         callback: Callable[[PushEvent], None],
         init_ts: int,
+        on_inbound_ring: Callable[[str, int], None] | None = None,
     ) -> None:
         self._client = client
         self._config = config
@@ -120,6 +121,7 @@ class VipEventListener:
         # renewal ts — using device_ts causes the device to reject the ACK).
         self._init_ts = init_ts
         self._ack_ts = (init_ts + _CTR_INCR_BOTH) & 0xFFFFFFFF
+        self._on_inbound_ring = on_inbound_ring
         self._task: asyncio.Task[None] | None = None
         # Timestamp of the last fired event per type — used to deduplicate
         # repeated transmissions (device retransmits call init every ~1-2s).
@@ -253,10 +255,12 @@ class VipEventListener:
             await self._send_renewal_ack(msg)
             return
 
-        # ACK call-init (0x18C0) messages so the device clears its alerting state.
-        # Without this ACK the device retransmits and the CTPP channel stays busy,
-        # causing the next video-start codec exchange to time out.
-        if prefix == PREFIX_CALL_INIT:
+        # For PREFIX_CALL_INIT: when on_inbound_ring is set, do NOT send any ACK here.
+        # The inbound answer sequence sends its own correctly-timed fresh_ts ACK (step 1).
+        # Sending the wrong ACK races the answer sequence and causes the device to reject it.
+        # When on_inbound_ring is NOT set (notifications-only), keep the old ACK so the
+        # device clears its alerting state and doesn't flood the CTPP channel.
+        if prefix == PREFIX_CALL_INIT and self._on_inbound_ring is None:
             await self._send_event_ack(msg)
 
         # ACK all call-phase (0x1840) and VIP FSM (0x1860) events, EXCEPT
@@ -351,12 +355,22 @@ class VipEventListener:
         # A 0x18C0 (call init) from the device means the device is initiating
         # a call to us — this IS the doorbell ring event.
         if prefix == PREFIX_CALL_INIT:
+            entrance_addr = addresses[0] if addresses else ""
+            ring_ts = msg["timestamp"]
             _LOGGER.debug(
-                "CTPP call init received (action=0x%04X, addrs=%s)",
+                "CTPP call init received (action=0x%04X, addrs=%s ring_ts=0x%08X)",
                 action,
                 addresses,
+                ring_ts,
             )
-            self._fire_event("doorbell_ring", addresses)
+            if self._on_inbound_ring is not None:
+                # Coordinator handles doorbell_ring after video is ready
+                try:
+                    self._on_inbound_ring(entrance_addr, ring_ts)
+                except Exception:
+                    _LOGGER.exception("Error in inbound ring callback")
+            else:
+                self._fire_event("doorbell_ring", addresses)
             return
 
         # 0x1860 = VIP FSM event. Action encodes the event subtype — see ACTION_* constants.

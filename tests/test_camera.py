@@ -11,9 +11,9 @@ from custom_components.comelit_man.camera import (
     ComelitCamera,
     ComelitIntercomCamera,
 )
-from custom_components.comelit_man.models import Camera as CameraModel, PushEvent
+from custom_components.comelit_man.models import Camera as CameraModel
+from custom_components.comelit_man.models import PushEvent
 from custom_components.comelit_man.placeholder import PLACEHOLDER_JPEG
-
 
 # ---------------------------------------------------------------------------
 # Placeholder JPEG validity

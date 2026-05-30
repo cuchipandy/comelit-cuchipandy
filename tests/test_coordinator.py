@@ -10,7 +10,6 @@ import pytest
 from custom_components.comelit_man.coordinator import ComelitLocalCoordinator
 from custom_components.comelit_man.models import Camera, DeviceConfig, Door
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1060,9 +1059,9 @@ class TestKeepaliveLoopBody:
                 "custom_components.comelit_man.coordinator.asyncio.wait_for",
                 side_effect=raise_cancelled,
             ),
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await coord._keepalive_loop()
+            await coord._keepalive_loop()
 
 
 # ---------------------------------------------------------------------------
@@ -1225,3 +1224,71 @@ class TestNotifyVideoStateChange:
         await coord._notify_video_state_change()
 
         assert fired == [True]
+
+
+# ---------------------------------------------------------------------------
+# go2rtc stream registration
+# ---------------------------------------------------------------------------
+
+
+class TestGo2RtcRegistration:
+    @pytest.mark.asyncio
+    async def test_register_puts_stream_with_backchannel_flag(self):
+        """_register_go2rtc_stream PUTs to go2rtc API with #backchannel=1."""
+        coord = _make_coordinator()
+        coord._rtsp_url = "rtsp://127.0.0.1:8557/intercom"
+
+        mock_response = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.put = AsyncMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("custom_components.comelit_man.coordinator.aiohttp.ClientSession", return_value=mock_session):
+            await coord._register_go2rtc_stream()
+
+        mock_session.put.assert_called_once()
+        call_kwargs = mock_session.put.call_args
+        params = call_kwargs[1]["params"]
+        assert params["src"].endswith("#backchannel=1")
+        assert params["src"].startswith("rtsp://127.0.0.1:8557/intercom")
+        assert "comelit_man_" in params["name"]
+
+    @pytest.mark.asyncio
+    async def test_register_graceful_when_go2rtc_unavailable(self):
+        """_register_go2rtc_stream does not raise when go2rtc is not running."""
+        coord = _make_coordinator()
+        coord._rtsp_url = "rtsp://127.0.0.1:8557/intercom"
+
+        mock_session = AsyncMock()
+        mock_session.put = AsyncMock(side_effect=OSError("connection refused"))
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("custom_components.comelit_man.coordinator.aiohttp.ClientSession", return_value=mock_session):
+            await coord._register_go2rtc_stream()  # must not raise
+
+    @pytest.mark.asyncio
+    async def test_deregister_deletes_stream(self):
+        """_deregister_go2rtc_stream sends DELETE to go2rtc API."""
+        coord = _make_coordinator()
+
+        mock_session = AsyncMock()
+        mock_session.delete = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("custom_components.comelit_man.coordinator.aiohttp.ClientSession", return_value=mock_session):
+            await coord._deregister_go2rtc_stream()
+
+        mock_session.delete.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_register_skips_when_no_rtsp_url(self):
+        """_register_go2rtc_stream returns immediately if rtsp_url is not set."""
+        coord = _make_coordinator()
+        coord._rtsp_url = None
+
+        with patch("custom_components.comelit_man.coordinator.aiohttp.ClientSession") as mock_cls:
+            await coord._register_go2rtc_stream()
+        mock_cls.assert_not_called()

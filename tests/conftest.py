@@ -58,14 +58,18 @@ class _ConfigEntryAuthFailed(_HomeAssistantError):
 
 try:
     import homeassistant as _ha_pkg  # noqa: F401
-
-    # Real HA is available — alias stubs to real classes so test imports work
-    from homeassistant.exceptions import (  # noqa: F401
-        HomeAssistantError as _HomeAssistantError,  # type: ignore[assignment]
-        ConfigEntryNotReady as _ConfigEntryNotReady,  # type: ignore[assignment]
+    from homeassistant.exceptions import (
         ConfigEntryAuthFailed as _ConfigEntryAuthFailed,  # type: ignore[assignment]
     )
-    from homeassistant.helpers.update_coordinator import (  # noqa: F401
+    from homeassistant.exceptions import (
+        ConfigEntryNotReady as _ConfigEntryNotReady,  # type: ignore[assignment]
+    )
+
+    # Real HA is available — alias stubs to real classes so test imports work
+    from homeassistant.exceptions import (
+        HomeAssistantError as _HomeAssistantError,  # type: ignore[assignment]
+    )
+    from homeassistant.helpers.update_coordinator import (
         UpdateFailed as _UpdateFailed,  # type: ignore[assignment]
     )
 

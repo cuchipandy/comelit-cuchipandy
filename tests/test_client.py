@@ -2,10 +2,10 @@
 
 import asyncio
 import struct
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.comelit_man.channels import ChannelType
 from custom_components.comelit_man.client import IconaBridgeClient
 from custom_components.comelit_man.exceptions import ConnectionComelitError
 from custom_components.comelit_man.protocol import (
@@ -14,7 +14,6 @@ from custom_components.comelit_man.protocol import (
     decode_header,
     encode_header,
 )
-from custom_components.comelit_man.channels import ChannelType
 
 
 def _make_command_response(server_channel_id: int, sequence: int = 2) -> bytes:
