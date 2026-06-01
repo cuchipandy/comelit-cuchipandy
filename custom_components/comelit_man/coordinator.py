@@ -429,22 +429,26 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             # CTPP is in flight.  go2rtc's WebRTC path queries the URL
             # through a different code path and is not affected, so the
             # user-visible latency stays at ~3 s.
-            await session.start()
-            _LOGGER.info("Video session ready in %.1fs", time.monotonic() - t0)
-            if self._rtsp_server and session.rtp_receiver:
-                session.rtp_receiver.attach_backchannel_queue(self._rtsp_server.backchannel_queue)
-            self._video_session = session
-            self._video_ready_event.set()
-            # Unblock PLAY handlers that have been waiting inside the RTSP
-            # server for video to actually flow.  Any stream_worker that
-            # reconnected during the CTPP handshake is stalled on PLAY
-            # (our server holds 200 OK until mark_ready); releasing it here
-            # means it transitions straight to reading frames instead of
-            # erroring on an empty stream and taking a 10 s HA backoff.
-            if self._rtsp_server:
-                self._rtsp_server.mark_ready()
-            await self._notify_video_state_change()
-            return session
+            try:
+                await session.start()
+                _LOGGER.info("Video session ready in %.1fs", time.monotonic() - t0)
+                if self._rtsp_server and session.rtp_receiver:
+                    session.rtp_receiver.attach_backchannel_queue(self._rtsp_server.backchannel_queue)
+                self._video_session = session
+                self._video_ready_event.set()
+                # Unblock PLAY handlers that have been waiting inside the RTSP
+                # server for video to actually flow.  Any stream_worker that
+                # reconnected during the CTPP handshake is stalled on PLAY
+                # (our server holds 200 OK until mark_ready); releasing it here
+                # means it transitions straight to reading frames instead of
+                # erroring on an empty stream and taking a 10 s HA backoff.
+                if self._rtsp_server:
+                    self._rtsp_server.mark_ready()
+                await self._notify_video_state_change()
+                return session
+            except Exception:
+                await self._ensure_vip_listener()
+                raise
 
     def _on_video_call_end(self) -> None:
         """Called by VideoCallSession when the device sends CALL_END."""
@@ -537,15 +541,15 @@ class ComelitLocalCoordinator(DataUpdateCoordinator[DeviceConfig]):
             if self._rtsp_server:
                 self._rtsp_server.mark_ready()
             await self._notify_video_state_change()
-            # Fire doorbell_ring AFTER video is flowing so automations see the stream
+            # Fire ring AFTER video is flowing so automations see the stream
             self._on_push_event(
                 PushEvent(
-                    event_type="doorbell_ring",
+                    event_type="ring",
                     apt_address=entrance_addr,
                     timestamp=time.time(),
                 )
             )
-            _LOGGER.info("Inbound video ready, doorbell_ring fired (entrance=%s)", entrance_addr)
+            _LOGGER.info("Inbound video ready, ring fired (entrance=%s)", entrance_addr)
 
     async def async_answer_inbound(self) -> None:
         """Start two-way audio for an active inbound call."""

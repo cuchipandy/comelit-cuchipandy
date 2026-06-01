@@ -318,30 +318,52 @@ class VipEventListener:
         except Exception:
             _LOGGER.warning("VIP: failed to send event ACK", exc_info=True)
 
+    def _resolve_ack_addresses(self, addresses: list[str]) -> tuple[str, str]:
+        """Derive caller/callee for a renewal ACK from the renewal's address list.
+
+        The device embeds its own binary VIP address in the renewal, which may
+        differ from the apt-address returned by the JSON config API.  The full
+        address (base + subaddress digit) appears twice; the base address once.
+        We return (caller=full, callee=base).  Falls back to config on failure.
+        """
+        if len(addresses) >= 2:
+            counts = {a: addresses.count(a) for a in set(addresses)}
+            repeated = [a for a, n in counts.items() if n >= 2]
+            solo = [a for a, n in counts.items() if n == 1]
+            if repeated and solo:
+                return repeated[0], solo[0]
+            sorted_unique = sorted(set(addresses), key=len, reverse=True)
+            if len(sorted_unique) >= 2:
+                return sorted_unique[0], sorted_unique[-1]
+        apt_addr = self._config.apt_address
+        return f"{apt_addr}{self._config.apt_subaddress}", apt_addr
+
     async def _send_renewal_ack(self, msg: dict[str, Any]) -> None:
         """Respond to device's periodic 0x1860/0x0010 registration renewal signal.
 
         The device sends this message periodically to verify the client is still
         listening. Without the ACK pair response it stops pushing VIP events.
 
+        Addresses are resolved from the renewal message itself at runtime — the
+        device's binary VIP address may differ from config.apt_address.
         Timestamp is `init_ts + 0x01010000` — see __init__ docstring.
         """
-        apt_addr = self._config.apt_address
-        apt_sub = self._config.apt_subaddress
-        vip_address = f"{apt_addr}{apt_sub}"
+        ack_caller, ack_callee = self._resolve_ack_addresses(msg["addresses"])
         try:
             await self._client.send_binary(
                 self._channel,
-                encode_call_response_ack(vip_address, apt_addr, self._ack_ts),
+                encode_call_response_ack(ack_caller, ack_callee, self._ack_ts),
             )
             await self._client.send_binary(
                 self._channel,
-                encode_call_response_ack(vip_address, apt_addr, self._ack_ts, prefix=0x1820),
+                encode_call_response_ack(ack_caller, ack_callee, self._ack_ts, prefix=0x1820),
             )
             _LOGGER.info(
-                "VIP: sent renewal ACK pair (device_ts=0x%08X ack_ts=0x%08X)",
+                "VIP: sent renewal ACK pair (device_ts=0x%08X ack_ts=0x%08X caller=%s callee=%s)",
                 msg["timestamp"],
                 self._ack_ts,
+                ack_caller,
+                ack_callee,
             )
         except Exception:
             _LOGGER.warning("VIP: failed to send renewal ACK", exc_info=True)
@@ -370,7 +392,7 @@ class VipEventListener:
                 except Exception:
                     _LOGGER.exception("Error in inbound ring callback")
             else:
-                self._fire_event("doorbell_ring", addresses)
+                self._fire_event("ring", addresses)
             return
 
         # 0x1860 = VIP FSM event. Action encodes the event subtype — see ACTION_* constants.
@@ -383,7 +405,7 @@ class VipEventListener:
             )
             if action == ACTION_IN_ALERTING:
                 # IN_ALERTING: someone rang the doorbell
-                self._fire_event("doorbell_ring", addresses)
+                self._fire_event("ring", addresses)
             elif action == ACTION_CONNECTED:
                 # CONNECTED: call was answered
                 pass

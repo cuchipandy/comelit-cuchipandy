@@ -218,6 +218,9 @@ class RtpReceiver:
         by writing to an injected queue; for now blank frames keep the audio
         path alive even when no microphone source is available.
         """
+        if self._audio_sender_task and not self._audio_sender_task.done():
+            _LOGGER.debug("Audio sender already running — skipping duplicate start")
+            return
         self._audio_sender_task = asyncio.create_task(self._audio_send_loop(device_rtpc_req_id))
         _LOGGER.debug("Audio sender started (device_rtpc_req_id=0x%04X)", device_rtpc_req_id)
 

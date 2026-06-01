@@ -1061,6 +1061,9 @@ class VideoCallSession:
                 await asyncio.wait_for(device_rtpc.open_event.wait(), timeout=VIDEO_RESPONSE_TIMEOUT)
                 self._device_rtpc_req_id = device_rtpc.server_channel_id
                 _LOGGER.debug("Inbound: device RTPC=0x%04X", self._device_rtpc_req_id)
+                # Step 17: Start audio sender immediately — device requires this for video to flow
+                if self._rtp_receiver:
+                    self._rtp_receiver.start_audio_sender(self._device_rtpc_req_id)
             except TimeoutError:
                 _LOGGER.warning("start_inbound: device RTPC not opened within timeout")
 

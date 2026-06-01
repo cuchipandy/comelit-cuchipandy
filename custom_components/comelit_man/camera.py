@@ -111,6 +111,7 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
     ) -> None:
         """Initialize the intercom camera entity."""
         super().__init__(coordinator, entry_id)
+        Camera.__init__(self)
         self._attr_unique_id = f"{entry_id}_intercom_camera"
         self._remove_push_cb: Callable[[], None] | None = None
         self._remove_stop_video_cb: Callable[[], None] | None = None
@@ -152,13 +153,16 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
     async def async_camera_image(self, width: int | None = None, height: int | None = None) -> bytes | None:
         """Return the latest JPEG frame, or placeholder when video is off."""
         session = self.coordinator.video_session
-        if not session or not session.active or not session.rtp_receiver:
+        if not session or not session.active:
+            return PLACEHOLDER_JPEG
+        rtp_receiver = session.rtp_receiver
+        if not rtp_receiver:
             return PLACEHOLDER_JPEG
         try:
             async with asyncio.timeout(2.0):
-                return await session.rtp_receiver.get_jpeg_frame()
+                return await rtp_receiver.get_jpeg_frame()
         except TimeoutError:
-            return session.rtp_receiver.latest_frame
+            return rtp_receiver.latest_frame
 
     async def async_added_to_hass(self) -> None:
         """Register for push events when entity is added."""

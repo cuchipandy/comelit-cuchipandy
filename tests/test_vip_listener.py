@@ -146,18 +146,18 @@ class TestFireEvent:
         cb = MagicMock()
         listener = _make_listener(cb)
 
-        listener._fire_event("doorbell_ring", ["SB000001"])
+        listener._fire_event("ring", ["SB000001"])
 
         cb.assert_called_once()
         event: PushEvent = cb.call_args[0][0]
-        assert event.event_type == "doorbell_ring"
+        assert event.event_type == "ring"
         assert event.apt_address == "SB000001"
 
     def test_first_address_used_as_apt_address(self):
         cb = MagicMock()
         listener = _make_listener(cb)
 
-        listener._fire_event("doorbell_ring", ["SB000001", "SB000006"])
+        listener._fire_event("ring", ["SB000001", "SB000006"])
 
         event: PushEvent = cb.call_args[0][0]
         assert event.apt_address == "SB000001"
@@ -166,7 +166,7 @@ class TestFireEvent:
         cb = MagicMock()
         listener = _make_listener(cb)
 
-        listener._fire_event("doorbell_ring", [])
+        listener._fire_event("ring", [])
 
         event: PushEvent = cb.call_args[0][0]
         assert event.apt_address == ""
@@ -176,8 +176,8 @@ class TestFireEvent:
         listener = _make_listener(cb)
         listener._dedup_window = 10.0
 
-        listener._fire_event("doorbell_ring", [])
-        listener._fire_event("doorbell_ring", [])
+        listener._fire_event("ring", [])
+        listener._fire_event("ring", [])
 
         cb.assert_called_once()
 
@@ -185,7 +185,7 @@ class TestFireEvent:
         cb = MagicMock()
         listener = _make_listener(cb)
 
-        listener._fire_event("doorbell_ring", [])
+        listener._fire_event("ring", [])
         listener._fire_event("door_opened", [])
 
         assert cb.call_count == 2
@@ -195,10 +195,10 @@ class TestFireEvent:
         listener = _make_listener(cb)
 
         # Pre-seed the last_fired time so it appears old
-        listener._last_fired["doorbell_ring"] = time.time() - 20.0
+        listener._last_fired["ring"] = time.time() - 20.0
         listener._dedup_window = 10.0
 
-        listener._fire_event("doorbell_ring", [])
+        listener._fire_event("ring", [])
 
         cb.assert_called_once()
 
@@ -206,7 +206,7 @@ class TestFireEvent:
         cb = MagicMock()
         listener = _make_listener(cb)
 
-        listener._fire_event("doorbell_ring", ["SB000001"])
+        listener._fire_event("ring", ["SB000001"])
 
         event: PushEvent = cb.call_args[0][0]
         assert event.raw["source"] == "ctpp_vip"
@@ -217,7 +217,7 @@ class TestFireEvent:
         listener = _make_listener(cb)
 
         # Should not raise
-        listener._fire_event("doorbell_ring", [])
+        listener._fire_event("ring", [])
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +242,7 @@ class TestHandleVipEvent:
         listener._handle_vip_event(self._msg(PREFIX_CALL_INIT, 0))
 
         cb.assert_called_once()
-        assert cb.call_args[0][0].event_type == "doorbell_ring"
+        assert cb.call_args[0][0].event_type == "ring"
 
     def test_vip_event_in_alerting_fires_doorbell_ring(self):
         cb = MagicMock()
@@ -251,7 +251,7 @@ class TestHandleVipEvent:
         listener._handle_vip_event(self._msg(PREFIX_VIP_EVENT, ACTION_IN_ALERTING))
 
         cb.assert_called_once()
-        assert cb.call_args[0][0].event_type == "doorbell_ring"
+        assert cb.call_args[0][0].event_type == "ring"
 
     def test_vip_event_door_opened_fires_door_opened(self):
         cb = MagicMock()
@@ -373,7 +373,7 @@ class TestProcessMessage:
         await listener._process_message(data)
 
         cb.assert_called_once()
-        assert cb.call_args[0][0].event_type == "doorbell_ring"
+        assert cb.call_args[0][0].event_type == "ring"
 
     @pytest.mark.asyncio
     async def test_in_alerting_fires_doorbell_ring(self):
@@ -384,7 +384,7 @@ class TestProcessMessage:
         await listener._process_message(data)
 
         cb.assert_called_once()
-        assert cb.call_args[0][0].event_type == "doorbell_ring"
+        assert cb.call_args[0][0].event_type == "ring"
 
     @pytest.mark.asyncio
     async def test_renewal_ack_uses_init_ts_plus_ctr_incr(self):
@@ -415,6 +415,75 @@ class TestProcessMessage:
         for payload in sent_payloads:
             actual_ts = struct.unpack_from("<I", payload, 2)[0]
             assert actual_ts == expected_ts
+
+    @pytest.mark.asyncio
+    async def test_renewal_ack_addresses_extracted_from_renewal_message(self):
+        """Renewal ACK caller/callee must come from the renewal message, not config.
+
+        The device's binary VIP address may differ from the apt-address returned
+        by the JSON config API.  The renewal embeds the device's own address:
+        the full address (base+subaddress) appears twice, the base address once.
+        The ACK must mirror those addresses back — not the config addresses.
+        """
+        cb = MagicMock()
+        # Config uses SB000006; device's VIP address is SB000003.
+        listener = _make_listener(cb, apt_address="SB000006", apt_subaddress=1, init_ts=0x12000000)
+
+        # Renewal from device: addr_with_sub=SB0000031 (×2), apt_addr=SB000003 (×1)
+        # (mirrors what encode_ctpp_init embeds, using the device's own VIP address)
+        device_renewal_addrs = ["SB0000031", "SB000003", "SB0000031"]
+        data = _make_ctpp_msg(
+            PREFIX_VIP_EVENT,
+            0xDEADBEEF,
+            ACTION_REGISTRATION_RENEWAL,
+            flags=0,
+            addresses=device_renewal_addrs,
+        )
+
+        sent_payloads: list[bytes] = []
+
+        async def capture_send(channel, payload):
+            sent_payloads.append(payload)
+
+        listener._client.send_binary = AsyncMock(side_effect=capture_send)
+        await listener._process_message(data)
+
+        assert len(sent_payloads) == 2
+        # Decode caller and callee from each payload.
+        # ACK format: [prefix LE16][ts LE32][action BE16][0xFFFFFFFF][caller\0][callee\0\0]
+        for payload in sent_payloads:
+            # Skip prefix(2) + ts(4) + action(2) + 0xFFFFFFFF(4) = 12 bytes
+            rest = payload[12:]
+            parts = rest.split(b"\x00")
+            caller = parts[0].decode("ascii")
+            callee = parts[1].decode("ascii")
+            assert caller == "SB0000031", f"Expected SB0000031, got {caller}"
+            assert callee == "SB000003", f"Expected SB000003, got {callee}"
+
+    @pytest.mark.asyncio
+    async def test_renewal_ack_falls_back_to_config_when_no_addresses(self):
+        """When renewal has no addresses, ACK falls back to config apt_address."""
+        cb = MagicMock()
+        listener = _make_listener(cb, apt_address="SB000006", apt_subaddress=1, init_ts=0x12000000)
+
+        data = _make_ctpp_msg(PREFIX_VIP_EVENT, 0x12345678, ACTION_REGISTRATION_RENEWAL, flags=0)
+
+        sent_payloads: list[bytes] = []
+
+        async def capture_send(channel, payload):
+            sent_payloads.append(payload)
+
+        listener._client.send_binary = AsyncMock(side_effect=capture_send)
+        await listener._process_message(data)
+
+        assert len(sent_payloads) == 2
+        for payload in sent_payloads:
+            rest = payload[12:]
+            parts = rest.split(b"\x00")
+            caller = parts[0].decode("ascii")
+            callee = parts[1].decode("ascii")
+            assert caller == "SB0000061"
+            assert callee == "SB000006"
 
     @pytest.mark.asyncio
     async def test_send_ack_failure_does_not_raise(self):
@@ -536,7 +605,7 @@ class TestListenLoop:
             await task
 
         cb.assert_called_once()
-        assert cb.call_args[0][0].event_type == "doorbell_ring"
+        assert cb.call_args[0][0].event_type == "ring"
 
     @pytest.mark.asyncio
     async def test_listen_loop_blocks_until_cancelled(self):
