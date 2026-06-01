@@ -433,8 +433,11 @@ class TestProcessMessage:
         # (mirrors what encode_ctpp_init embeds, using the device's own VIP address)
         device_renewal_addrs = ["SB0000031", "SB000003", "SB0000031"]
         data = _make_ctpp_msg(
-            PREFIX_VIP_EVENT, 0xDEADBEEF, ACTION_REGISTRATION_RENEWAL,
-            flags=0, addresses=device_renewal_addrs,
+            PREFIX_VIP_EVENT,
+            0xDEADBEEF,
+            ACTION_REGISTRATION_RENEWAL,
+            flags=0,
+            addresses=device_renewal_addrs,
         )
 
         sent_payloads: list[bytes] = []
