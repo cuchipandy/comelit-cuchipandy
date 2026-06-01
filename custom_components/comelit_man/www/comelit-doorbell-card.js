@@ -1,10 +1,11 @@
 /**
  * Comelit Doorbell Card — Notification card for doorbell ring events.
  *
- * Idle:    Camera thumbnail with a doorbell icon overlay.
- * Ringing: Pulsing doorbell icon + "Answer" / "Dismiss" buttons.
- *          Auto-dismisses after `dismiss_after` seconds (default 30).
- * Answered: Live video stream with a stop button.
+ * Idle:     Camera thumbnail with a doorbell icon overlay.
+ * Ringing:  Live video + pulsing icon overlay + "Answer" / "Dismiss" buttons.
+ *           Auto-dismisses after `dismiss_after` seconds (default 30).
+ *           Video starts automatically via the integration's auto-answer sequence.
+ * Answered: Live video + stop button only. Answer pressed two-way audio.
  *
  * Install:
  *   The Lovelace resource is registered automatically on HA startup.
@@ -12,10 +13,10 @@
  *   Add card to dashboard (YAML):
  *     type: custom:comelit-doorbell-card
  *     doorbell_entity: event.comelit_intercom_doorbell
- *     camera_entity: camera.comelit_intercom_live_feed
- *     start_entity: button.comelit_intercom_start_video_feed
- *     stop_entity:  button.comelit_intercom_stop_video_feed
- *     dismiss_after: 30   # optional, seconds
+ *     camera_entity:   camera.comelit_intercom_live_feed
+ *     answer_entity:   button.comelit_intercom_answer_doorbell
+ *     stop_entity:     button.comelit_intercom_stop_video_feed
+ *     dismiss_after:   30   # optional, seconds
  */
 class ComelitDoorbellCard extends HTMLElement {
   constructor() {
@@ -46,7 +47,7 @@ class ComelitDoorbellCard extends HTMLElement {
     this._hass = hass;
     if (this._liveCard) this._liveCard.hass = hass;
     this._checkDoorbellState();
-    if (this._state !== "answered") this._refreshThumbnail();
+    if (this._state === "idle") this._refreshThumbnail();
   }
 
   connectedCallback() {
@@ -62,7 +63,10 @@ class ComelitDoorbellCard extends HTMLElement {
     window.removeEventListener("location-changed", this._onLocationChanged);
     this._onLocationChanged = null;
     this._clearDismissTimer();
-    if (this._state === "answered") this._callStop();
+    if (this._state !== "idle") {
+      this._callStop();
+      this._teardownLiveCard();
+    }
   }
 
   getCardSize() {
@@ -73,7 +77,7 @@ class ComelitDoorbellCard extends HTMLElement {
     return {
       doorbell_entity: "event.comelit_intercom_doorbell",
       camera_entity: "camera.comelit_intercom_live_feed",
-      start_entity: "button.comelit_intercom_start_video_feed",
+      answer_entity: "button.comelit_intercom_answer_doorbell",
       stop_entity: "button.comelit_intercom_stop_video_feed",
       dismiss_after: 30,
     };
@@ -106,37 +110,15 @@ class ComelitDoorbellCard extends HTMLElement {
   // State transitions
   // ---------------------------------------------------------------------------
 
-  _showRinging() {
+  async _showRinging() {
     this._state = "ringing";
     this._updateView();
     this._clearDismissTimer();
     const dismissMs = (this._config.dismiss_after ?? 30) * 1000;
     this._dismissTimer = setTimeout(() => this._dismiss(), dismissMs);
-  }
 
-  _dismiss() {
-    this._clearDismissTimer();
-    if (this._state === "answered") {
-      this._callStop();
-      this._teardownLiveCard();
-    }
-    this._state = "idle";
-    this._updateView();
-    this._refreshThumbnail();
-  }
-
-  async _answer() {
-    this._clearDismissTimer();
-    this._state = "answered";
-    this._updateView();
-
-    if (this._config.start_entity) {
-      this._hass.callService("button", "press", {
-        entity_id: this._config.start_entity,
-      });
-    }
-
-    if (this._config.camera_entity) {
+    // Create live card once — persists into answered state
+    if (this._config.camera_entity && !this._liveCard) {
       const helpers = await window.loadCardHelpers();
       this._liveCard = await helpers.createCardElement({
         type: "picture-entity",
@@ -146,11 +128,26 @@ class ComelitDoorbellCard extends HTMLElement {
         show_state: false,
       });
       this._liveCard.hass = this._hass;
-      this.shadowRoot.getElementById("stream-slot").appendChild(this._liveCard);
+      const slot = this.shadowRoot.getElementById("stream-slot");
+      if (slot) slot.appendChild(this._liveCard);
     }
   }
 
-  _stopAndReturn() {
+  _answer() {
+    this._clearDismissTimer();
+    this._state = "answered";
+    this._updateView();
+
+    // Audio only — video is already streaming via auto-answer
+    if (this._config.answer_entity) {
+      this._hass.callService("button", "press", {
+        entity_id: this._config.answer_entity,
+      });
+    }
+  }
+
+  _dismiss() {
+    this._clearDismissTimer();
     this._callStop();
     this._teardownLiveCard();
     this._state = "idle";
@@ -185,12 +182,16 @@ class ComelitDoorbellCard extends HTMLElement {
 
   _updateView() {
     const idle = this.shadowRoot.getElementById("idle");
-    const ringing = this.shadowRoot.getElementById("ringing");
-    const live = this.shadowRoot.getElementById("live");
-    if (!idle || !ringing || !live) return;
-    idle.style.display = this._state === "idle" ? "" : "none";
-    ringing.style.display = this._state === "ringing" ? "" : "none";
-    live.style.display = this._state === "answered" ? "" : "none";
+    const active = this.shadowRoot.getElementById("active");
+    const ringOverlay = this.shadowRoot.getElementById("ring-overlay");
+    const answeredOverlay = this.shadowRoot.getElementById("answered-overlay");
+    if (!idle || !active || !ringOverlay || !answeredOverlay) return;
+
+    const isActive = this._state !== "idle";
+    idle.style.display = isActive ? "none" : "";
+    active.style.display = isActive ? "" : "none";
+    ringOverlay.style.display = this._state === "ringing" ? "" : "none";
+    answeredOverlay.style.display = this._state === "answered" ? "" : "none";
   }
 
   _refreshThumbnail() {
@@ -199,10 +200,8 @@ class ComelitDoorbellCard extends HTMLElement {
     const token = state?.attributes?.access_token;
     if (!token) return;
     const url = `/api/camera_proxy/${this._config.camera_entity}?token=${token}&t=${Date.now()}`;
-    ["thumbnail", "thumbnail-ring"].forEach((id) => {
-      const img = this.shadowRoot.getElementById(id);
-      if (img) img.src = url;
-    });
+    const img = this.shadowRoot.getElementById("thumbnail");
+    if (img) img.src = url;
   }
 
   _isVisible() {
@@ -220,7 +219,6 @@ class ComelitDoorbellCard extends HTMLElement {
         :host { display: block; }
         ha-card { overflow: hidden; }
 
-        /* Shared thumbnail container */
         .view {
           position: relative;
           background: #111;
@@ -244,8 +242,23 @@ class ComelitDoorbellCard extends HTMLElement {
         }
         .idle-overlay svg { flex-shrink: 0; }
 
-        /* Ringing overlay */
-        .ringing-overlay {
+        /* Active view (ringing + answered): stream fills the area */
+        #active {
+          display: none;
+          position: relative;
+          background: #111;
+          aspect-ratio: 5 / 3;
+          width: 100%;
+        }
+        #stream-slot {
+          width: 100%; height: 100%;
+        }
+        #stream-slot > * {
+          width: 100%; height: 100%; display: block;
+        }
+
+        /* Ringing overlay — sits on top of live stream */
+        #ring-overlay {
           position: absolute;
           inset: 0;
           display: flex;
@@ -253,7 +266,8 @@ class ComelitDoorbellCard extends HTMLElement {
           align-items: center;
           justify-content: center;
           gap: 16px;
-          background: rgba(0, 0, 0, 0.52);
+          background: rgba(0, 0, 0, 0.45);
+          pointer-events: auto;
         }
         .ring-icon {
           width: 68px; height: 68px;
@@ -293,8 +307,12 @@ class ComelitDoorbellCard extends HTMLElement {
           border: 1px solid rgba(255, 255, 255, 0.45);
         }
 
-        /* Live: stop button */
-        .live { display: none; position: relative; }
+        /* Answered overlay — just the stop button */
+        #answered-overlay {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+        }
         .stop-btn {
           position: absolute; top: 8px; right: 8px;
           width: 32px; height: 32px;
@@ -303,6 +321,7 @@ class ComelitDoorbellCard extends HTMLElement {
           border: none; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
           z-index: 10; transition: background 0.15s;
+          pointer-events: auto;
         }
         .stop-btn:hover { background: rgba(180, 0, 0, 0.75); }
         .stop-btn svg { fill: #fff; width: 16px; height: 16px; }
@@ -320,10 +339,12 @@ class ComelitDoorbellCard extends HTMLElement {
           </div>
         </div>
 
-        <!-- Ringing: thumbnail + pulsing icon + actions -->
-        <div class="view" id="ringing" style="display:none">
-          <img class="thumbnail" id="thumbnail-ring" />
-          <div class="ringing-overlay">
+        <!-- Active: live stream with ringing or answered overlay -->
+        <div id="active">
+          <div id="stream-slot"></div>
+
+          <!-- Ringing overlay -->
+          <div id="ring-overlay">
             <div class="ring-icon">
               <svg viewBox="0 0 24 24">
                 <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/>
@@ -335,14 +356,13 @@ class ComelitDoorbellCard extends HTMLElement {
               <button class="btn btn-dismiss" id="dismiss-btn">Dismiss</button>
             </div>
           </div>
-        </div>
 
-        <!-- Live: stream + stop button -->
-        <div class="live" id="live">
-          <button class="stop-btn" id="stop-btn" title="Stop video">
-            <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
-          </button>
-          <div id="stream-slot"></div>
+          <!-- Answered overlay -->
+          <div id="answered-overlay" style="display:none">
+            <button class="stop-btn" id="stop-btn" title="Stop video">
+              <svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg>
+            </button>
+          </div>
         </div>
       </ha-card>
     `;
@@ -355,7 +375,7 @@ class ComelitDoorbellCard extends HTMLElement {
       .addEventListener("click", () => this._dismiss());
     this.shadowRoot
       .getElementById("stop-btn")
-      .addEventListener("click", () => this._stopAndReturn());
+      .addEventListener("click", () => this._dismiss());
   }
 }
 
@@ -368,5 +388,5 @@ window.customCards.push({
   type: "comelit-doorbell-card",
   name: "Comelit Doorbell",
   description:
-    "Doorbell notification card — shows ringing alert with Answer/Dismiss when someone rings.",
+    "Doorbell notification card — live video preview on ring, Answer starts two-way audio.",
 });

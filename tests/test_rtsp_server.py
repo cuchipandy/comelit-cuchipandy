@@ -1397,12 +1397,66 @@ class TestAudioFeedLoop:
         assert rtp[1] & 0x7F == 8  # PT=8 PCMA
 
     @pytest.mark.asyncio
-    async def test_timeout_does_not_send_silence(self):
-        """Timeout from queue.get does not broadcast anything — no silence padding."""
+    async def test_timeout_no_silence_when_no_clients(self):
+        """Timeout with no active clients → nothing broadcast."""
         server = LocalRtspServer()
         server._running = True
         broadcasts: list[bytes] = []
         server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+
+        call_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            nonlocal call_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            call_count += 1
+            if call_count >= 2:
+                server._running = False
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()
+
+        assert len(broadcasts) == 0
+
+    @pytest.mark.asyncio
+    async def test_timeout_sends_silence_when_idle(self):
+        """Timeout while idle (clients connected, ready_event clear) → silence frame broadcast."""
+        server = LocalRtspServer()
+        server._running = True
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+        server._active_clients.append(MagicMock())  # type: ignore[arg-type]
+
+        call_count = 0
+
+        async def mock_wait_for(coro: object, timeout: float) -> bytes:
+            nonlocal call_count
+            if asyncio.iscoroutine(coro):
+                coro.close()  # type: ignore[attr-defined]
+            call_count += 1
+            if call_count >= 2:
+                raise asyncio.CancelledError
+            raise TimeoutError
+
+        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
+            await server._audio_feed_loop()
+
+        assert len(broadcasts) == 1
+        rtp = broadcasts[0]
+        assert rtp[1] & 0x7F == 8  # PT=8 PCMA
+        assert rtp[12:] == b"\xd5" * 160  # silence payload
+
+    @pytest.mark.asyncio
+    async def test_timeout_no_silence_during_live_call(self):
+        """Timeout while ready_event is set (live call) → nothing broadcast."""
+        server = LocalRtspServer()
+        server._running = True
+        server._ready_event.set()
+        broadcasts: list[bytes] = []
+        server._broadcast_rtp = lambda pkt, is_video: broadcasts.append(pkt)  # type: ignore[method-assign]
+        server._active_clients.append(MagicMock())  # type: ignore[arg-type]
 
         call_count = 0
 
@@ -2053,11 +2107,10 @@ class TestHandleClient:
         assert b"Session:" in writer.data
 
     @pytest.mark.asyncio
-    async def test_play_with_ready_event_registers_client_and_returns_200(self):
-        """PLAY with ready event set registers client and returns 200 OK."""
+    async def test_play_registers_client_and_returns_200(self):
+        """PLAY registers client and returns 200 OK immediately (no ready_event gate)."""
         server = LocalRtspServer()
         server._running = True
-        server._ready_event.set()
         reader = _RequestReader(
             [
                 b"SETUP rtsp://127.0.0.1/intercom RTSP/1.0\r\n"
@@ -2072,30 +2125,21 @@ class TestHandleClient:
         assert len(server._active_clients) == 0  # removed in finally
 
     @pytest.mark.asyncio
-    async def test_play_timeout_returns_503(self):
-        """PLAY with ready event timeout returns 503 Service Unavailable."""
+    async def test_play_without_ready_event_still_returns_200(self):
+        """PLAY returns 200 OK immediately even when ready_event is not set."""
         server = LocalRtspServer()
         server._running = True
-        # ready_event NOT set
-
-        call_count = 0
-
-        async def mock_wait_for(coro: object, timeout: float) -> bytes | None:
-            nonlocal call_count
-            if asyncio.iscoroutine(coro):
-                coro.close()  # type: ignore[attr-defined]
-            call_count += 1
-            if call_count == 1:
-                # First call: reader.read — return the PLAY request
-                return b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n"
-            # Second call: ready_event.wait — timeout → 503
-            raise TimeoutError
-
-        reader = _RequestReader([])  # mock bypasses reader
+        # ready_event NOT set — should no longer block or 503
+        reader = _RequestReader(
+            [
+                b"PLAY rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",
+                b"",  # EOF in _wait_for_teardown
+            ]
+        )
         writer = _ResponseWriter()
-        with patch("custom_components.comelit_man.rtsp_server.asyncio.wait_for", mock_wait_for):
-            await server._handle_client(reader, writer)
-        assert b"503 Service Unavailable" in writer.data
+        await server._handle_client(reader, writer)
+        assert b"RTSP/1.0 200 OK" in writer.data
+        assert b"503" not in writer.data
 
     @pytest.mark.asyncio
     async def test_teardown_in_main_loop_returns_200(self):
@@ -2232,7 +2276,6 @@ class TestHandleClient:
         """Complete RTSP session: OPTIONS→DESCRIBE→SETUP→PLAY→TEARDOWN."""
         server = LocalRtspServer()
         server._running = True
-        server._ready_event.set()
         reader = _RequestReader(
             [
                 b"OPTIONS rtsp://127.0.0.1/intercom RTSP/1.0\r\nCSeq: 1\r\n\r\n",

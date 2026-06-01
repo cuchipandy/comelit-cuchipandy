@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.2.0
+
+### New features
+
+- **Inbound video auto-starts on ring** — when a visitor presses the doorbell the integration immediately answers and starts the video feed; no manual button press required
+- **Audio sender starts with video** — PCMA audio path to the device opens automatically when the inbound video session is established (device requires this for video to flow)
+- **go2rtc backchannel stay-alive** — RTSP audio feed now sends silent PCMA at the correct 20 ms cadence between calls so go2rtc's WebRTC session stays connected in the browser; silence is suppressed during live calls to avoid glitches
+- **Doorbell card updated** — live video appears immediately on ring (not waiting for Answer); `answer_entity` replaces `start_entity` in the card config; pressing Answer activates two-way audio
+
+### Bug fixes
+
+- **Camera `rtp_receiver` race condition** — `async_camera_image` now captures `rtp_receiver` as a local variable before any `await`; previously the receiver could be set to `None` during the 2 s frame wait, causing `AttributeError: 'NoneType' object has no attribute 'latest_frame'`
+- **Duplicate audio sender guard** — `start_audio_sender` is a no-op if the sender task is already running, preventing duplicate audio streams on re-entry
+- **VIP listener restored on video start failure** — if `session.start()` raises, `_ensure_vip_listener` is called so the coordinator's CTPP channel stays open for future doorbell events
+
+### Notes
+
+- **Two-way audio (phone → intercom) is a work in progress** — the integration side is wired (Answer button → `answer_inbound()` → PCMA sender + device answer sequence; go2rtc backchannel via RTSP ANNOUNCE/RECORD), but end-to-end mic audio from the companion app to the intercom speaker has not been fully validated. The `webrtc-camera` card must be configured with `microphone: true` and the mic unmuted in the card for audio to flow.
+
 ## 1.1.1
 
 ### Bug fixes

@@ -24,8 +24,10 @@ TCP interleaved RTP (RFC 2326 §10.12):
     $ | channel (1 byte) | length (2 bytes BE) | RTP packet
 
 Audio keepalive:
-    When no real audio is available, silent PCMA (0xD5) is sent every ~1s
-    so go2rtc and the stream worker stay connected between calls.
+    Between calls, silent PCMA (0xD5) is sent at the correct 20 ms cadence
+    so go2rtc's WebRTC session stays alive in the browser.  Silence is
+    suppressed during live calls (_ready_event set) to avoid glitches — if
+    no real audio arrives within 20 ms, the loop iterates without sending.
 """
 
 from __future__ import annotations
@@ -350,7 +352,7 @@ class LocalRtspServer:
     # RTSP request handling
     # ------------------------------------------------------------------
 
-    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:  # noqa: C901
+    async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         """Handle one RTSP client connection."""
         peer = writer.get_extra_info("peername")
         client_host = peer[0] if peer else "unknown"
@@ -398,25 +400,6 @@ class LocalRtspServer:
                     self._send(writer, cseq, extra=(f"Session: {self._session_id}\r\n{transport_resp}\r\n"))
 
                 elif method == "PLAY":
-                    # Stall PLAY until a video session is actually flowing.
-                    # If a stream_worker reconnects while CTPP is still
-                    # negotiating, responding 200 OK immediately would hand
-                    # it a silent stream — it errors ~1.6 s later with
-                    # "Stream ended" and HA backs off 10 s before retrying.
-                    # Waiting inside PLAY (up to 10 s) keeps the worker in
-                    # its connect phase, so when video becomes ready it
-                    # transitions directly to reading frames.
-                    if not self._ready_event.is_set():
-                        _LOGGER.debug(
-                            "PLAY from %s waiting for video readiness",
-                            client_host,
-                        )
-                        try:
-                            await asyncio.wait_for(self._ready_event.wait(), timeout=10.0)
-                        except TimeoutError:
-                            writer.write(f"RTSP/1.0 503 Service Unavailable\r\nCSeq: {cseq}\r\n\r\n".encode())
-                            await writer.drain()
-                            break
                     self._send(writer, cseq, extra=(f"Session: {self._session_id}\r\nRange: npt=0.000-\r\n"))
                     self._active_clients.append(client)
                     registered = True
@@ -1034,16 +1017,22 @@ class LocalRtspServer:
     async def _audio_feed_loop(self) -> None:
         """Broadcast G.711 PCMA to all registered clients.
 
-        Only sends real audio from the device — no silence padding.
-        Silence caused the 8 kHz audio clock to advance 50x too slowly
-        (1 frame per second instead of 50), breaking HLS/WebRTC sync.
+        Between calls (_ready_event clear), sends silent PCMA (0xD5) at the
+        correct 20 ms cadence so go2rtc's WebRTC session stays alive in the
+        browser.  Silence is suppressed during live calls (_ready_event set)
+        to avoid glitches; if no real audio arrives within 20 ms in that case,
+        the loop iterates without sending.
         """
+        _silence = b"\xd5" * 160
         try:
             while self._running:
                 try:
-                    payload = await asyncio.wait_for(self.audio_queue.get(), timeout=1.0)
+                    payload = await asyncio.wait_for(self.audio_queue.get(), timeout=0.020)
                 except TimeoutError:
-                    continue
+                    if not self._ready_event.is_set() and self._active_clients:
+                        payload = _silence
+                    else:
+                        continue
 
                 pkt = _build_rtp(
                     pt=8,
