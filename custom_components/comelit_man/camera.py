@@ -166,9 +166,15 @@ class ComelitIntercomCamera(ComelitEntity, Camera):
 
     async def async_added_to_hass(self) -> None:
         """Register for push events when entity is added."""
+        await super().async_added_to_hass()
+
         self._remove_push_cb = self.coordinator.add_push_callback(self._on_push)
-        self._remove_stop_video_cb = self.coordinator.add_stop_video_callback(self._async_stop_ha_stream)
-        self._remove_state_cb = self.coordinator.add_video_state_change_callback(self._async_video_state_changed)
+        self._remove_stop_video_cb = self.coordinator.add_stop_video_callback(
+            self._async_stop_ha_stream
+        )
+        self._remove_state_cb = self.coordinator.add_video_state_change_callback(
+            self._async_video_state_changed
+        )
 
     async def async_will_remove_from_hass(self) -> None:
         """Unregister callbacks when entity is removed."""
