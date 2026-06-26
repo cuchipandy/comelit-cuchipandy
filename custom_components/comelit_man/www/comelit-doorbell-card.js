@@ -380,7 +380,10 @@ class ComelitDoorbellCard extends HTMLElement {
 }
 
 if (!customElements.get("comelit-doorbell-card")) {
-  customElements.define("comelit-doorbell-card", ComelitDoorbellCard);
+  customElements.define(
+    "comelit-doorbell-card",
+    ComelitDoorbellCard
+  );
 }
 
 window.customCards = window.customCards || [];
