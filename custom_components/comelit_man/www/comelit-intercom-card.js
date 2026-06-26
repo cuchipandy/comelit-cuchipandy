@@ -325,7 +325,12 @@ class ComelitIntercomCard extends HTMLElement {
   }
 }
 
-customElements.define("comelit-intercom-card", ComelitIntercomCard);
+if (!customElements.get("comelit-intercom-card")) {
+  customElements.define(
+    "comelit-intercom-card",
+    ComelitIntercomCard
+  );
+}
 
 window.customCards = window.customCards || [];
 window.customCards.push({
